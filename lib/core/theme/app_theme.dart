@@ -96,10 +96,6 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: BorderSide(
-            color: Colors.grey.shade200,
-            width: 1,
-          ),
         ),
         color: cardColor,
       ),

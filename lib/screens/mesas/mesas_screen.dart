@@ -295,20 +295,20 @@ class _MesasScreenState extends State<MesasScreen> {
           curve: Curves.easeInOut,
           decoration: BoxDecoration(
             color: isSelected
-                ? AppTheme.primaryColor.withValues(alpha: 0.05)
-                : statusColor.withValues(alpha: 0.08),
+                ? AppTheme.primaryColor.withOpacity(0.05)
+                : statusColor.withOpacity(0.08),
             borderRadius: BorderRadius.circular(borderRadius),
             border: Border.all(
               color: isSelected 
                   ? AppTheme.primaryColor
-                  : statusColor.withValues(alpha: 0.4),
+                  : statusColor.withOpacity(0.4),
               width: isSelected ? 2.5 : 2.0,
             ),
             boxShadow: [
               BoxShadow(
                 color: isSelected
-                    ? AppTheme.primaryColor.withValues(alpha: 0.2)
-                    : statusColor.withValues(alpha: 0.15),
+                    ? AppTheme.primaryColor.withOpacity(0.2)
+                    : statusColor.withOpacity(0.15),
                 blurRadius: isSelected ? 16 : 10,
                 offset: Offset(0, isSelected ? 4 : 2),
                 spreadRadius: 0,
@@ -329,7 +329,7 @@ class _MesasScreenState extends State<MesasScreen> {
                       Container(
                         padding: EdgeInsets.all(isDesktop ? 8 : (adaptive.isMobile ? 9 : 10)),
                         decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.15),
+                          color: statusColor.withOpacity(0.15),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -665,10 +665,10 @@ class _MesasScreenState extends State<MesasScreen> {
             vertical: adaptive.isMobile ? 8 : (adaptive.isDesktop ? 6 : 10),
           ),
           decoration: BoxDecoration(
-            color: statusColor.withValues(alpha: 0.12),
+            color: statusColor.withOpacity(0.12),
             borderRadius: BorderRadius.circular(adaptive.isMobile ? 12 : (adaptive.isDesktop ? 10 : 14)),
             border: Border.all(
-              color: statusColor.withValues(alpha: 0.4),
+              color: statusColor.withOpacity(0.4),
               width: 1.5,
             ),
           ),

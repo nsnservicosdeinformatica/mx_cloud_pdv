@@ -52,7 +52,7 @@ class EnhancedAppBarWidget extends StatelessWidget implements PreferredSizeWidge
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.1),
+              color: AppTheme.primaryColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -96,10 +96,10 @@ class EnhancedAppBarWidget extends StatelessWidget implements PreferredSizeWidge
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.15),
+                                color: statusColor.withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(
-                                  color: statusColor.withValues(alpha: 0.4),
+                                  color: statusColor.withOpacity(0.4),
                                   width: 1,
                                 ),
                               ),
@@ -139,7 +139,7 @@ class EnhancedAppBarWidget extends StatelessWidget implements PreferredSizeWidge
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.warningColor.withValues(alpha: 0.15),
+                                  color: AppTheme.warningColor.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(

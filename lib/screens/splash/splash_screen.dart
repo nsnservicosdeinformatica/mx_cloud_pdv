@@ -160,7 +160,7 @@ class _SplashScreenState extends State<SplashScreen>
                       height: 200 + (index * 50),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.05),
+                        color: Colors.white.withOpacity(0.05),
                       ),
                     ),
                   );
@@ -203,7 +203,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   letterSpacing: -1,
                                   shadows: [
                                     Shadow(
-                                      color: Colors.black.withValues(alpha: 0.3),
+                                      color: Colors.black.withOpacity(0.3),
                                       blurRadius: 10,
                                     ),
                                   ],
@@ -215,7 +215,7 @@ class _SplashScreenState extends State<SplashScreen>
                                 style: GoogleFonts.inter(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w500,
-                                  color: Colors.white.withValues(alpha: 0.9),
+                                  color: Colors.white.withOpacity(0.9),
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -232,7 +232,7 @@ class _SplashScreenState extends State<SplashScreen>
                           height: 40,
                           child: CircularProgressIndicator(
                             valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white.withValues(alpha: 0.8),
+                              Colors.white.withOpacity(0.8),
                             ),
                             strokeWidth: 3,
                           ),

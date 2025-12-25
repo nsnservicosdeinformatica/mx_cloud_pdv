@@ -17,8 +17,9 @@ class ElevatedToolbarContainer extends StatelessWidget {
   /// Padding customizado (opcional)
   final EdgeInsets? padding;
   
-  /// Altura fixa da barra (padrão: 68px)
-  static const double alturaFixa = 68.0;
+  /// Altura base da barra em logical pixels (padrão: 68px)
+  /// Será ajustada automaticamente baseado na densidade de pixels da tela
+  static const double alturaBase = 68.0;
 
   const ElevatedToolbarContainer({
     super.key,
@@ -29,8 +30,17 @@ class ElevatedToolbarContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Calcula altura total: base + SafeArea (se aplicável)
+    // Isso garante que a altura VISUAL do conteúdo seja sempre a mesma
+    final mediaQuery = MediaQuery.of(context);
+    final safeAreaTop = useSafeArea ? mediaQuery.padding.top : 0.0;
+    
+    // Altura total = altura base + SafeArea
+    // Isso mantém a altura visual do conteúdo consistente
+    final alturaTotal = alturaBase + safeAreaTop;
+    
     return Container(
-      height: alturaFixa,
+      height: alturaTotal,
       decoration: BoxDecoration(
         // Gradiente vertical com cores da marca (azul e verde) de forma sutil
         // Mantém a mesma cor no início e no fim
@@ -147,18 +157,21 @@ class ElevatedToolbarContainer extends StatelessWidget {
             ),
           ),
           // Conteúdo da barra
-          useSafeArea
-              ? SafeArea(
-                  bottom: false,
-                  child: _buildContent(context),
-                )
-              : _buildContent(context),
+          // Padding top já está incluído na altura total, então apenas posicionamos
+          Padding(
+            padding: EdgeInsets.only(
+              top: safeAreaTop,
+            ),
+            child: _buildContent(context),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildContent(BuildContext context) {
+    // Padding consistente independente da plataforma
+    // O SafeArea já foi tratado no build(), então aqui apenas aplicamos o padding padrão
     return Container(
       padding: padding ??
           EdgeInsets.only(

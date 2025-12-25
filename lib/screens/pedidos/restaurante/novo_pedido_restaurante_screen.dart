@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/adaptive_layout/adaptive_layout.dart';
 import '../../../widgets/app_header.dart';
+import '../../../widgets/elevated_toolbar_container.dart';
+import '../../../widgets/h4nd_loading.dart';
 import '../../../presentation/providers/pedido_provider.dart';
 import '../../../presentation/providers/services_provider.dart';
 import '../../../data/models/modules/restaurante/mesa_list_item.dart';
@@ -86,7 +88,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
           context: context,
           barrierDismissible: false,
           builder: (context) => const Center(
-            child: CircularProgressIndicator(),
+            child: H4ndLoading(size: 60),
           ),
         );
 
@@ -383,7 +385,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 4,
-                                    children: _buildMesaComandaBadges(),
+                                    children: _buildMesaComandaBadgesLegacy(), // Versão legada para modal
                                   ),
                                 ],
                               ],
@@ -431,149 +433,89 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     // Tela cheia: usa Scaffold (mobile)
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      appBar: _buildModernHeader(context),
-      body: buildContent(),
-    );
-  }
-
-  /// Cabeçalho com design moderno e profissional
-  PreferredSizeWidget _buildModernHeader(BuildContext context) {
-    final adaptive = AdaptiveLayoutProvider.of(context);
-    final padding = adaptive?.getPadding() ?? 16.0;
-
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(100),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF2563EB), // Azul médio-escuro
-              const Color(0xFF1E40AF), // Azul escuro
-            ],
+      body: Column(
+        children: [
+          // Barra de ferramentas com título usando ElevatedToolbarContainer
+          _buildBarraFerramentasComTitulo(adaptive),
+          // Conteúdo principal
+          Expanded(
+            child: buildContent(),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2563EB).withOpacity(0.2),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-              spreadRadius: 0,
-            ),
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            // Barra decorativa superior verde
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 3,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981), // Verde vibrante
-                ),
-              ),
-            ),
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: padding, vertical: 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        // Botão voltar com estilo moderno (branco)
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => Navigator.of(context).maybePop(),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.all(9),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.arrow_back_ios_new_rounded,
-                                size: 16,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        
-                        // Conteúdo principal
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Novo Pedido',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
-                                  height: 1.2,
-                                ),
-                              ),
-                              if (_mesa != null || _comanda != null) ...[
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 4,
-                                  children: _buildMesaComandaBadges(),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(width: 12),
-                        
-                        // Ações (botão de busca em mobile)
-                        ..._buildHeaderActions(context),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
-  /// Retorna lista de badges de mesa/comanda com cores do sistema (branco e verde)
-  List<Widget> _buildMesaComandaBadges() {
+  /// Barra de ferramentas com título usando ElevatedToolbarContainer
+  Widget _buildBarraFerramentasComTitulo(AdaptiveLayoutProvider? adaptive) {
+    if (adaptive == null) return const SizedBox.shrink();
+    
+    return ElevatedToolbarContainer(
+      padding: EdgeInsets.symmetric(
+        horizontal: adaptive.isMobile ? 12 : 16,
+        vertical: adaptive.isMobile ? 8 : 10,
+      ),
+      child: Row(
+        children: [
+          // Botão voltar (apenas mobile) - padrão igual detalhes da mesa
+          if (adaptive.isMobile) ...[
+            _buildBackButton(adaptive),
+            const SizedBox(width: 8),
+          ],
+          
+          // Título
+          Expanded(
+            child: Text(
+              'Novo Pedido',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: adaptive.isMobile ? 16 : 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textPrimary,
+                letterSpacing: -0.3,
+                height: 1.2,
+              ),
+            ),
+          ),
+          
+          // Mini badges de mesa/comanda (compactos, apenas ícone + número)
+          if (_mesa != null || _comanda != null) ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _buildMiniBadgesWithSpacing(adaptive),
+            ),
+            const SizedBox(width: 8),
+          ],
+          
+          // Ações (botão de busca em mobile) - padrão igual área de mesas
+          if (adaptive.isMobile) ...[
+            _buildToolButtonCompact(
+              adaptive,
+              icon: Icons.search_rounded,
+              onTap: () {
+                _mostrarBuscaNotifier.value = !_mostrarBuscaNotifier.value;
+              },
+              isPrimary: true,
+              tooltip: 'Buscar produto',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Retorna lista de badges de mesa/comanda (versão legada para modal)
+  List<Widget> _buildMesaComandaBadgesLegacy() {
     final badges = <Widget>[];
-    final verdeSistema = const Color(0xFF10B981);
     
     if (_mesa != null) {
       badges.add(
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.25),
+            color: AppTheme.primaryColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: Colors.white.withOpacity(0.4),
+              color: AppTheme.primaryColor.withOpacity(0.3),
               width: 1,
             ),
           ),
@@ -582,8 +524,8 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
             children: [
               Icon(
                 Icons.table_restaurant_rounded,
-                size: 10,
-                color: Colors.white,
+                size: 12,
+                color: AppTheme.primaryColor,
               ),
               const SizedBox(width: 5),
               Text(
@@ -591,7 +533,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white,
+                  color: AppTheme.primaryColor,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -606,10 +548,10 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: verdeSistema.withOpacity(0.9),
+            color: AppTheme.accentColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: verdeSistema,
+              color: AppTheme.accentColor.withOpacity(0.3),
               width: 1,
             ),
           ),
@@ -618,8 +560,8 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
             children: [
               Icon(
                 Icons.receipt_long_rounded,
-                size: 10,
-                color: Colors.white,
+                size: 12,
+                color: AppTheme.accentColor,
               ),
               const SizedBox(width: 5),
               Text(
@@ -627,7 +569,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white,
+                  color: AppTheme.accentColor,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -640,42 +582,226 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     return badges;
   }
 
-  /// Retorna ações do cabeçalho (botão de busca em mobile)
-  List<Widget> _buildHeaderActions(BuildContext context) {
-    final adaptive = AdaptiveLayoutProvider.of(context);
-    final isMobile = adaptive?.isMobile ?? true;
+  /// Mini badges compactos de mesa/comanda (ícone pequeno acima + número)
+  /// Altura igual aos botões, layout vertical compacto
+  List<Widget> _buildMiniBadges(AdaptiveLayoutProvider adaptive) {
+    final badges = <Widget>[];
+    final buttonPadding = adaptive.isMobile ? 10.0 : 12.0; // Mesma altura dos botões
     
-    if (!isMobile) {
-      return []; // Desktop não precisa do botão, busca sempre visível
+    if (_mesa != null) {
+      badges.add(
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: adaptive.isMobile ? 6 : 8,
+            vertical: buttonPadding, // Mesma altura dos botões
+          ),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+            border: Border.all(
+              color: AppTheme.primaryColor.withOpacity(0.25),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Ícone pequeno acima
+              Icon(
+                Icons.table_restaurant_rounded,
+                size: adaptive.isMobile ? 12 : 14,
+                color: AppTheme.primaryColor,
+              ),
+              const SizedBox(height: 2),
+              // Número reduzido
+              Text(
+                _mesa!.numero,
+                style: GoogleFonts.inter(
+                  fontSize: adaptive.isMobile ? 10 : 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primaryColor,
+                  height: 1.0, // Altura de linha reduzida
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
     
-    return [
-      Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            _mostrarBuscaNotifier.value = !_mostrarBuscaNotifier.value;
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.3),
-                width: 1,
+    if (_comanda != null) {
+      badges.add(
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: adaptive.isMobile ? 6 : 8,
+            vertical: buttonPadding, // Mesma altura dos botões
+          ),
+          decoration: BoxDecoration(
+            color: AppTheme.accentColor.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+            border: Border.all(
+              color: AppTheme.accentColor.withOpacity(0.25),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Ícone pequeno acima
+              Icon(
+                Icons.receipt_long_rounded,
+                size: adaptive.isMobile ? 12 : 14,
+                color: AppTheme.accentColor,
               ),
+              const SizedBox(height: 2),
+              // Número reduzido
+              Text(
+                _comanda!.numero,
+                style: GoogleFonts.inter(
+                  fontSize: adaptive.isMobile ? 10 : 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.accentColor,
+                  height: 1.0, // Altura de linha reduzida
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    return badges;
+  }
+
+  /// Retorna mini badges com espaçamento entre eles
+  List<Widget> _buildMiniBadgesWithSpacing(AdaptiveLayoutProvider adaptive) {
+    final badges = _buildMiniBadges(adaptive);
+    if (badges.isEmpty) return [];
+    
+    final result = <Widget>[];
+    for (int i = 0; i < badges.length; i++) {
+      result.add(badges[i]);
+      if (i < badges.length - 1) {
+        result.add(const SizedBox(width: 8));
+      }
+    }
+    return result;
+  }
+
+  /// Botão voltar padrão único do sistema (apenas mobile)
+  Widget _buildBackButton(AdaptiveLayoutProvider adaptive) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.of(context).maybePop(),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppTheme.primaryColor.withOpacity(0.15),
+                AppTheme.primaryColor.withOpacity(0.08),
+              ],
             ),
-            child: Icon(
-              Icons.search_rounded,
-              size: 18,
-              color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppTheme.primaryColor.withOpacity(0.3),
+              width: 1.5,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 18,
+            color: AppTheme.primaryColor,
           ),
         ),
       ),
-    ];
+    );
+  }
+
+  /// Botão de ferramenta compacto (padrão igual área de mesas)
+  Widget _buildToolButtonCompact(
+    AdaptiveLayoutProvider adaptive, {
+    required IconData icon,
+    required VoidCallback? onTap,
+    required bool isPrimary,
+    required String tooltip,
+  }) {
+    final buttonContent = Container(
+      padding: EdgeInsets.all(adaptive.isMobile ? 10 : 12),
+      decoration: BoxDecoration(
+        gradient: isPrimary
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.primaryColor,
+                  AppTheme.primaryColor.withOpacity(0.85),
+                ],
+              )
+            : null,
+        color: isPrimary ? null : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        border: Border.all(
+          color: isPrimary
+              ? AppTheme.primaryColor.withOpacity(0.2)
+              : Colors.grey.shade300,
+          width: isPrimary ? 0 : 1,
+        ),
+        boxShadow: isPrimary
+            ? [
+                BoxShadow(
+                  color: AppTheme.primaryColor.withOpacity(0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                  spreadRadius: 0,
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+      ),
+      child: Icon(
+        icon,
+        color: isPrimary ? Colors.white : AppTheme.textPrimary,
+        size: adaptive.isMobile ? 20 : 22,
+      ),
+    );
+    
+    if (onTap == null) {
+      return Tooltip(
+        message: tooltip,
+        child: buttonContent,
+      );
+    }
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        child: Tooltip(
+          message: tooltip,
+          child: buttonContent,
+        ),
+      ),
+    );
   }
 
   /// Header compacto para modal mostrando mesa/comanda
@@ -869,7 +995,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       barrierDismissible: false,
       useRootNavigator: true,
       builder: (dialogContext) => const Center(
-        child: CircularProgressIndicator(),
+        child: H4ndLoading(size: 60),
       ),
     );
 

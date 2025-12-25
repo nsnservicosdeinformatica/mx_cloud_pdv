@@ -58,7 +58,7 @@ class MesaDetalhesProvider extends ChangeNotifier {
   VendaDto? _vendaAtual;
 
   // Controle de abas (apenas quando controle é por comanda e é mesa)
-  String? _abaSelecionada; // null = Visão Geral, comandaId = comanda específica, "_SEM_COMANDA" = Sem Comanda
+  String? _abaSelecionada; // null = "Mesa" (venda integral - tudo), comandaId = comanda específica, "_SEM_COMANDA" = "Sem Comanda" (apenas sem comanda)
 
   // Constante para identificar aba "Sem Comanda"
   static const String _SEM_COMANDA = "_SEM_COMANDA";
@@ -133,18 +133,74 @@ class MesaDetalhesProvider extends ChangeNotifier {
   }
 
   /// Retorna os produtos para ação (da aba selecionada)
+  /// null = "Mesa" (venda integral - todos os produtos)
+  /// comandaId = produtos da comanda específica
+  /// "_SEM_COMANDA" = apenas produtos sem comanda
   List<ProdutoAgrupado> getProdutosParaAcao() {
+    // Se aba selecionada é null, retorna TODOS os produtos (venda integral)
     if (_abaSelecionada == null) {
-      return [];
+      return _getTodosProdutosMesa();
     }
+    // Se é "_SEM_COMANDA", retorna apenas produtos sem comanda
+    if (_abaSelecionada == _SEM_COMANDA) {
+      return _produtosPorComanda[_SEM_COMANDA] ?? [];
+    }
+    // Caso contrário, retorna produtos da comanda específica
     return _produtosPorComanda[_abaSelecionada] ?? [];
   }
 
-  /// Retorna a venda para ação (da aba selecionada)
-  VendaDto? getVendaParaAcao() {
-    if (_abaSelecionada == null) {
-      return null;
+  /// Retorna todos os produtos da mesa (com comanda + sem comanda) - venda integral
+  List<ProdutoAgrupado> _getTodosProdutosMesa() {
+    final produtosMap = <String, ProdutoAgrupado>{};
+    
+    // Adiciona produtos de todas as comandas
+    for (final comanda in _comandasDaMesa) {
+      for (final produto in comanda.produtos) {
+        _agruparProdutoNoMapa(
+          produtosMap,
+          produto.produtoId,
+          produto.produtoNome,
+          produto.produtoVariacaoId,
+          produto.produtoVariacaoNome,
+          produto.precoUnitario,
+          produto.quantidadeTotal,
+          variacaoAtributosValores: produto.variacaoAtributosValores,
+        );
+      }
     }
+    
+    // Adiciona produtos sem comanda
+    final produtosSemComanda = _produtosPorComanda[_SEM_COMANDA] ?? [];
+    for (final produto in produtosSemComanda) {
+      _agruparProdutoNoMapa(
+        produtosMap,
+        produto.produtoId,
+        produto.produtoNome,
+        produto.produtoVariacaoId,
+        produto.produtoVariacaoNome,
+        produto.precoUnitario,
+        produto.quantidadeTotal,
+        variacaoAtributosValores: produto.variacaoAtributosValores,
+      );
+    }
+    
+    return _mapaParaProdutosOrdenados(produtosMap);
+  }
+
+  /// Retorna a venda para ação (da aba selecionada)
+  /// null = "Mesa" (venda integral) - retorna venda atual da mesa se houver
+  /// comandaId = venda da comanda específica
+  /// "_SEM_COMANDA" = venda sem comanda
+  VendaDto? getVendaParaAcao() {
+    // Se aba selecionada é null ("Mesa" - venda integral), retorna venda atual da mesa
+    if (_abaSelecionada == null) {
+      return _vendaAtual;
+    }
+    // Se é "_SEM_COMANDA", retorna venda sem comanda
+    if (_abaSelecionada == _SEM_COMANDA) {
+      return _vendasPorComanda[_SEM_COMANDA];
+    }
+    // Caso contrário, retorna venda da comanda específica
     return _vendasPorComanda[_abaSelecionada];
   }
 
@@ -153,7 +209,7 @@ class MesaDetalhesProvider extends ChangeNotifier {
     // Se já tem uma aba selecionada e ela ainda existe, mantém
     if (_abaSelecionada != null) {
       if (_abaSelecionada == _SEM_COMANDA && temProdutosSemComanda) {
-        return; // Aba "Mesa" ainda existe
+        return; // Aba "Sem Comanda" ainda existe
       }
       if (_abaSelecionada != _SEM_COMANDA && 
           _comandasDaMesa.any((c) => c.comanda.id == _abaSelecionada)) {
@@ -161,11 +217,10 @@ class MesaDetalhesProvider extends ChangeNotifier {
       }
     }
     
-    // Seleciona primeira aba disponível: Mesa primeiro, depois primeira comanda
-    if (temProdutosSemComanda) {
-      _abaSelecionada = _SEM_COMANDA;
-    } else if (_comandasDaMesa.isNotEmpty) {
-      _abaSelecionada = _comandasDaMesa.first.comanda.id;
+    // Seleciona primeira aba disponível: "Mesa" (null) sempre primeiro se houver produtos
+    // Depois "Sem Comanda" se necessário, depois comandas
+    if (_comandasDaMesa.isNotEmpty || temProdutosSemComanda) {
+      _abaSelecionada = null; // Aba "Mesa" (venda integral)
     } else {
       _abaSelecionada = null;
     }
@@ -174,6 +229,10 @@ class MesaDetalhesProvider extends ChangeNotifier {
   /// Verifica se há produtos sem comanda (venda sem comanda)
   bool get temProdutosSemComanda => _produtosPorComanda.containsKey(_SEM_COMANDA) && 
                                      (_produtosPorComanda[_SEM_COMANDA]?.isNotEmpty ?? false);
+
+  /// Verifica se deve mostrar a aba "Sem Comanda"
+  /// Só mostra se houver produtos SEM comanda E produtos COM comanda (ambos)
+  bool get deveMostrarAbaSemComanda => temProdutosSemComanda && _comandasDaMesa.isNotEmpty;
 
   /// Retorna a venda sem comanda (se houver)
   VendaDto? get vendaSemComanda => _vendasPorComanda[_SEM_COMANDA];

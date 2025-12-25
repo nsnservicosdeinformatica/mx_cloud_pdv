@@ -877,20 +877,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
         _buildSeletorVisualizacao(adaptive),
         // Conteúdo da visualização selecionada (sempre mostra produtos da aba selecionada)
         Expanded(
-            child: _provider.abaSelecionada != null
-                ? _buildListaProdutosPorComanda(adaptive, _provider.abaSelecionada!)
-                : Container(
-                    color: Colors.white,
-                    child: Center(
-                      child: Text(
-                        'Selecione uma aba',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ),
-                  ),
+            child: _buildListaProdutosPorComanda(adaptive, _provider.abaSelecionada),
         ),
       ],
       ),
@@ -901,13 +888,26 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
   Widget _buildSeletorVisualizacao(AdaptiveLayoutProvider adaptive) {
     final tabs = <TabData>[];
     
-    // Adiciona aba "Mesa" primeiro se houver produtos sem comanda
-    if (_provider.temProdutosSemComanda) {
+    // SEMPRE adiciona aba "Mesa" primeiro (venda integral - tudo)
+    // Só mostra se houver produtos (com comanda ou sem comanda)
+    final temProdutos = _provider.comandasDaMesa.isNotEmpty || _provider.temProdutosSemComanda;
+    if (temProdutos) {
+      tabs.add(
+        TabData(
+          comandaId: null, // null = "Mesa" (venda integral)
+          label: 'Mesa',
+          icon: Icons.table_restaurant,
+        ),
+      );
+    }
+    
+    // Adiciona aba "Sem Comanda" apenas se houver produtos SEM comanda E COM comanda (ambos)
+    if (_provider.deveMostrarAbaSemComanda) {
       tabs.add(
         TabData(
           comandaId: MesaDetalhesProvider.semComandaId,
-          label: 'Mesa',
-          icon: Icons.table_restaurant,
+          label: 'Sem Comanda',
+          icon: Icons.table_restaurant_outlined,
         ),
       );
     }
@@ -1159,7 +1159,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
   }
 
   /// Lista de produtos filtrada por comanda específica
-  Widget _buildListaProdutosPorComanda(AdaptiveLayoutProvider adaptive, String comandaId) {
+  Widget _buildListaProdutosPorComanda(AdaptiveLayoutProvider adaptive, String? comandaId) {
     // IMPORTANTE: Verifica se está carregando ANTES de verificar se tem produtos
     // Não deve mostrar "nenhum produto" se ainda está carregando
     if (_provider.isLoading || _provider.carregandoProdutos || _provider.carregandoComandas) {
@@ -1171,10 +1171,12 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
       );
     }
     
-    // Busca os produtos da comanda específica
-    final produtosComanda = _provider.produtosPorComanda[comandaId] ?? [];
+    // Busca os produtos da aba selecionada
+    // null = "Mesa" (venda integral - todos os produtos)
+    // comandaId = produtos da comanda específica ou "_SEM_COMANDA"
+    final produtos = _provider.getProdutosParaAcao();
     
-    if (produtosComanda.isEmpty) {
+    if (produtos.isEmpty) {
       // Só mostra esta mensagem se JÁ terminou de carregar (verificado acima)
       return Container(
         color: Colors.white,
@@ -1189,7 +1191,11 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
             ),
             const SizedBox(height: 16),
             Text(
-              'Nenhum produto encontrado nesta comanda',
+              comandaId == null 
+                  ? 'Nenhum produto encontrado na mesa'
+                  : comandaId == MesaDetalhesProvider.semComandaId
+                      ? 'Nenhum produto encontrado sem comanda'
+                      : 'Nenhum produto encontrado nesta comanda',
               style: GoogleFonts.inter(
                 fontSize: 16,
                 color: AppTheme.textSecondary,
@@ -1210,10 +1216,10 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
           adaptive.isMobile ? 16 : 20,
           8,
         ),
-        itemCount: produtosComanda.length,
+        itemCount: produtos.length,
         itemBuilder: (context, index) {
           return ProdutoCardWidget(
-            produto: produtosComanda[index],
+            produto: produtos[index],
             adaptive: adaptive,
           );
         },

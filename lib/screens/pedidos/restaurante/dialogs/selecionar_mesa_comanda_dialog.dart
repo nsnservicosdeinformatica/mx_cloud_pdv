@@ -873,7 +873,7 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
         child: Opacity(
           opacity: isDisabled ? 0.5 : 1.0,
           child: Container(
-            padding: EdgeInsets.all(adaptive.isMobile ? 32 : 40),
+            padding: EdgeInsets.all(adaptive.isMobile ? 32 : 28),
         decoration: BoxDecoration(
               color: isSelecionado ? cor.withOpacity(0.1) : Colors.grey.shade50,
               borderRadius: BorderRadius.circular(adaptive.isMobile ? 20 : 24),
@@ -887,10 +887,10 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
           children: [
                 Icon(
                   icon,
-                  size: adaptive.isMobile ? 64 : 80,
+                  size: adaptive.isMobile ? 64 : 56,
                   color: isSelecionado ? cor : Colors.grey.shade400,
                 ),
-                SizedBox(width: adaptive.isMobile ? 24 : 32),
+                SizedBox(width: adaptive.isMobile ? 24 : 20),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -898,16 +898,16 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
                   Text(
                         label,
                     style: GoogleFonts.inter(
-                          fontSize: adaptive.isMobile ? 18 : 20,
+                          fontSize: adaptive.isMobile ? 18 : 16,
                       fontWeight: FontWeight.w600,
                           color: AppTheme.textSecondary,
                     ),
                   ),
-                      SizedBox(height: 8),
+                      SizedBox(height: 6),
                     Text(
                         isSelecionado ? numero! : 'Toque para selecionar',
                       style: GoogleFonts.inter(
-                          fontSize: adaptive.isMobile ? 24 : 28,
+                          fontSize: adaptive.isMobile ? 24 : 22,
                           fontWeight: FontWeight.w700,
                           color: isSelecionado ? cor : Colors.grey.shade400,
                       ),
@@ -919,7 +919,9 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
             IconButton(
                     icon: Icon(Icons.close, color: cor),
                     onPressed: isDisabled ? null : onRemover,
-                    iconSize: adaptive.isMobile ? 24 : 28,
+                    iconSize: adaptive.isMobile ? 24 : 22,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
             ),
           ],
         ),

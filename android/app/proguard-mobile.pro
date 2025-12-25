@@ -95,30 +95,77 @@
 # ============================================================================
 # CRÍTICO: Preserva MainActivity e ciclo de vida
 # ============================================================================
-# Preserva MainActivity completamente (incluindo anotações)
+# Preserva MainActivity completamente (incluindo anotações e métodos)
 -keep class com.example.mx_cloud_pdv.MainActivity {
+    <init>(...);
+    void onCreate(android.os.Bundle);
+    void onStart();
+    void onResume();
+    void onPause();
+    void onStop();
+    void onDestroy();
     *;
 }
 -keepclassmembers class com.example.mx_cloud_pdv.MainActivity {
+    <init>(...);
+    void onCreate(android.os.Bundle);
+    void onStart();
+    void onResume();
+    void onPause();
+    void onStop();
+    void onDestroy();
     *;
 }
 
-# Preserva FlutterActivity e seus métodos de ciclo de vida
+# Preserva FlutterActivity e TODOS os seus métodos (sem exceção)
 -keep class io.flutter.embedding.android.FlutterActivity {
+    <init>(...);
+    void onCreate(android.os.Bundle);
+    void onStart();
+    void onResume();
+    void onPause();
+    void onStop();
+    void onDestroy();
     *;
 }
 -keepclassmembers class io.flutter.embedding.android.FlutterActivity {
+    <init>(...);
+    void onCreate(android.os.Bundle);
+    void onStart();
+    void onResume();
+    void onPause();
+    void onStop();
+    void onDestroy();
     *;
 }
 
-# Preserva métodos de ciclo de vida de qualquer Activity
+# Preserva métodos de ciclo de vida de QUALQUER Activity (sem exceção)
 -keepclassmembers class * extends android.app.Activity {
+    <init>(...);
     public void onCreate(android.os.Bundle);
     public void onStart();
     public void onResume();
     public void onPause();
     public void onStop();
     public void onDestroy();
+    protected void onCreate(android.os.Bundle);
+    protected void onStart();
+    protected void onResume();
+    protected void onPause();
+    protected void onStop();
+    protected void onDestroy();
+}
+
+# Preserva TODAS as classes que estendem FlutterActivity
+-keep class * extends io.flutter.embedding.android.FlutterActivity {
+    <init>(...);
+    void onCreate(android.os.Bundle);
+    void onStart();
+    void onResume();
+    void onPause();
+    void onStop();
+    void onDestroy();
+    *;
 }
 
 # Preserva anotações (incluindo @Keep)

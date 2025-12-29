@@ -1,24 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/elevated_toolbar_container.dart';
 import '../../presentation/providers/services_provider.dart';
-import '../../data/services/modules/restaurante/comanda_service.dart';
+import '../../presentation/providers/comandas_provider.dart';
 import '../../data/models/modules/restaurante/comanda_list_item.dart';
-import '../../data/models/modules/restaurante/comanda_filter.dart';
-import '../../data/models/core/api_response.dart';
-import '../../data/models/core/paginated_response.dart';
-import '../../data/models/local/pedido_local.dart';
-import '../../data/models/local/sync_status_pedido.dart';
 import '../../data/repositories/pedido_local_repository.dart';
+import '../../data/repositories/user_preferences_repository.dart';
+import '../../data/models/user_preferences.dart';
+import '../../core/widgets/teclado_numerico_dialog.dart';
 import 'detalhes_comanda_screen.dart';
 import '../mesas/detalhes_produtos_mesa_screen.dart';
 import '../../models/mesas/entidade_produtos.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../widgets/h4nd_loading.dart';
+
+/// Classe auxiliar para armazenar tamanhos do card
+class _ComandaCardSizes {
+  final double iconSize;
+  final double numeroSize;
+  final double statusSize;
+  final double cardPadding;
+  final double borderRadius;
+  final double minWidth;
+  final double minHeight;
+
+  _ComandaCardSizes({
+    required this.iconSize,
+    required this.numeroSize,
+    required this.statusSize,
+    required this.cardPadding,
+    required this.borderRadius,
+    required this.minWidth,
+    required this.minHeight,
+  });
+}
 
 /// Tela de listagem de comandas (Restaurante)
 class ComandasScreen extends StatefulWidget {
@@ -26,11 +46,14 @@ class ComandasScreen extends StatefulWidget {
   final bool hideAppBar;
   /// ID da comanda para selecionar automaticamente ao carregar
   final String? comandaId;
+  /// Widget opcional para adicionar no início da barra de ferramentas
+  final Widget? toolbarPrefix;
 
   const ComandasScreen({
     super.key,
     this.hideAppBar = false,
     this.comandaId,
+    this.toolbarPrefix,
   });
 
   @override
@@ -38,240 +61,89 @@ class ComandasScreen extends StatefulWidget {
 }
 
 class _ComandasScreenState extends State<ComandasScreen> {
-  List<ComandaListItemDto> _comandas = [];
-  List<ComandaListItemDto> _filteredComandas = [];
-  bool _isLoading = true;
-  String? _errorMessage;
-  int _currentPage = 1;
-  final int _pageSize = 1000; // Carregar todas as comandas de uma vez
-  bool _hasMore = true;
-  final TextEditingController _searchController = TextEditingController();
-  ComandaListItemDto? _selectedComanda; // Comanda selecionada para layout desktop
-  final _pedidoRepo = PedidoLocalRepository();
+  late ComandasProvider _provider;
+  late UserPreferencesRepository _preferencesRepo;
+  MesaViewSize _comandaViewSize = MesaViewSize.medio;
+  String? _filtroAtivo; // Armazena o número da comanda filtrada
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_filterComandas);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadComandas();
-      // Garante que a box de pedidos está aberta
-      _pedidoRepo.getAll();
-      // Escuta mudanças nos pedidos para atualizar seleção automaticamente
-      _setupPedidosListener();
-    });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Quando a tela volta ao foco, verifica se há comanda para selecionar automaticamente
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _comandas.isNotEmpty && _selectedComanda == null) {
-        _selecionarComandaComPedidosPendentes();
+    final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+    
+    // Cria o provider
+    _provider = ComandasProvider(
+      comandaService: servicesProvider.comandaService,
+      pedidoRepo: PedidoLocalRepository(),
+      servicesProvider: servicesProvider,
+    );
+    
+    // Repositório de preferências
+    _preferencesRepo = UserPreferencesRepository();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Carrega preferências do usuário
+      final preferences = await _preferencesRepo.loadPreferences();
+      if (mounted) {
+        setState(() {
+          _comandaViewSize = preferences.mesaViewSize; // Reutiliza o mesmo enum
+        });
+      }
+      
+      // Inicializa o provider (configura listeners e carrega comandas)
+      _provider.initialize();
+      
+      // Seleciona comanda por ID se fornecido
+      if (widget.comandaId != null) {
+        // Aguarda um pouco para garantir que as comandas foram carregadas
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            _provider.selecionarComandaPorId(widget.comandaId!);
+          }
+        });
       }
     });
-  }
-
-  /// Configura listener para pedidos locais e atualiza seleção quando há novos pedidos
-  void _setupPedidosListener() {
-    if (!Hive.isBoxOpen(PedidoLocalRepository.boxName)) {
-      return;
-    }
-
-    final box = Hive.box<PedidoLocal>(PedidoLocalRepository.boxName);
-    box.listenable().addListener(_onPedidosChanged);
-  }
-
-  /// Callback quando há mudanças nos pedidos locais
-  void _onPedidosChanged() {
-    if (!mounted || _comandas.isEmpty) {
-      return;
-    }
-
-    // Se não há comanda selecionada, tenta selecionar automaticamente
-    if (_selectedComanda == null) {
-      _selecionarComandaComPedidosPendentes();
-    }
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
-    // Remove listener de pedidos
-    if (Hive.isBoxOpen(PedidoLocalRepository.boxName)) {
-      final box = Hive.box<PedidoLocal>(PedidoLocalRepository.boxName);
-      box.listenable().removeListener(_onPedidosChanged);
-    }
+    _provider.dispose();
     super.dispose();
   }
 
-  void _filterComandas() {
-    final query = _searchController.text.toLowerCase().trim();
+  /// Atualiza o tamanho de visualização
+  Future<void> _atualizarTamanhoVisualizacao(MesaViewSize novoSize) async {
     setState(() {
-      if (query.isEmpty) {
-        _filteredComandas = _comandas;
-      } else {
-        _filteredComandas = _comandas.where((comanda) {
-          final numero = comanda.numero.toLowerCase().trim();
-          final codigoBarras = (comanda.codigoBarras ?? '').toLowerCase();
-          final descricao = (comanda.descricao ?? '').toLowerCase();
-          final status = comanda.status.toLowerCase();
-          
-          return numero.contains(query) || 
-                 codigoBarras.contains(query) ||
-                 descricao.contains(query) || 
-                 status.contains(query);
-        }).toList();
-      }
+      _comandaViewSize = novoSize;
     });
+    await _preferencesRepo.saveMesaViewSize(novoSize);
   }
+  
+  /// Abre teclado numérico para buscar comanda
+  Future<void> _abrirBuscaComanda() async {
+    final numero = await TecladoNumericoDialog.show(
+      context,
+      titulo: 'Buscar Comanda',
+      valorInicial: _filtroAtivo,
+      hint: 'Número da comanda',
+      icon: Icons.receipt_long,
+      cor: AppTheme.primaryColor,
+    );
 
-  ComandaService get _comandaService {
-    final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
-    return servicesProvider.comandaService;
-  }
-
-  Future<void> _loadComandas({bool refresh = false}) async {
-    if (refresh) {
-      setState(() {
-        _currentPage = 1;
-        _comandas = [];
-        _hasMore = true;
-        _errorMessage = null;
+    if (numero != null && numero.trim().isNotEmpty) {
+        setState(() {
+        _filtroAtivo = numero.trim();
       });
+      _provider.filterComandas(numero.trim());
     }
-
-    if (!_hasMore && !refresh) return;
-
-    setState(() {
-      _isLoading = true;
+  }
+  
+  /// Remove o filtro ativo
+  void _removerFiltro() {
+        setState(() {
+      _filtroAtivo = null;
     });
-
-    try {
-      final response = await _comandaService.searchComandas(
-        page: _currentPage,
-        pageSize: _pageSize,
-        filter: ComandaFilterDto(ativa: true), // Apenas comandas ativas
-      );
-
-      if (response.success && response.data != null) {
-        final paginatedData = response.data!;
-        setState(() {
-          if (refresh) {
-            _comandas = paginatedData.list;
-          } else {
-            _comandas.addAll(paginatedData.list);
-          }
-          _filteredComandas = _comandas;
-          _hasMore = paginatedData.pagination.page < paginatedData.pagination.totalPages;
-          _currentPage++;
-          _isLoading = false;
-        });
-
-        // Selecionar comanda automaticamente se comandaId foi fornecido
-        if (widget.comandaId != null && _selectedComanda == null) {
-          _selecionarComandaPorId(widget.comandaId!);
-        } else if (widget.comandaId == null && _selectedComanda == null) {
-          // Se não há comandaId fornecido, tenta selecionar automaticamente
-          // a comanda que tem pedidos pendentes (mais recente)
-          _selecionarComandaComPedidosPendentes();
-        }
-      } else {
-        setState(() {
-          _errorMessage = response.message;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Erro ao carregar comandas: ${e.toString()}';
-        _isLoading = false;
-      });
-    }
-  }
-
-  /// Seleciona uma comanda por ID automaticamente
-  void _selecionarComandaPorId(String comandaId) {
-    try {
-      final comanda = _comandas.firstWhere(
-        (c) => c.id == comandaId,
-      );
-      
-      final adaptive = AdaptiveLayoutProvider.of(context);
-      if (adaptive != null && !adaptive.isMobile) {
-        // Desktop: seleciona na lista
-        setState(() {
-          _selectedComanda = comanda;
-        });
-      } else {
-        // Mobile: navega para tela de detalhes
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => AdaptiveLayout(
-                  child: DetalhesComandaScreen(comanda: comanda),
-                ),
-              ),
-            );
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint('⚠️ Comanda $comandaId não encontrada na lista: $e');
-      // Comanda não encontrada, não faz nada
-    }
-  }
-
-  /// Seleciona automaticamente a comanda que tem pedidos pendentes (mais recente)
-  void _selecionarComandaComPedidosPendentes() {
-    if (!Hive.isBoxOpen(PedidoLocalRepository.boxName)) {
-      return;
-    }
-
-    try {
-      final box = Hive.box<PedidoLocal>(PedidoLocalRepository.boxName);
-      final pedidosPendentes = box.values
-          .where((p) => 
-              p.comandaId != null && 
-              p.comandaId!.isNotEmpty &&
-              p.syncStatus != SyncStatusPedido.sincronizado)
-          .toList();
-
-      if (pedidosPendentes.isEmpty) {
-        return;
-      }
-
-      // Ordena por data de criação (mais recente primeiro)
-      pedidosPendentes.sort((a, b) => b.dataCriacao.compareTo(a.dataCriacao));
-      
-      // Pega a comanda do pedido mais recente
-      final comandaIdMaisRecente = pedidosPendentes.first.comandaId!;
-      
-      // Busca a comanda na lista
-      try {
-        final comanda = _comandas.firstWhere(
-          (c) => c.id == comandaIdMaisRecente,
-        );
-
-        final adaptive = AdaptiveLayoutProvider.of(context);
-        if (adaptive != null && !adaptive.isMobile) {
-          // Desktop: seleciona na lista
-          setState(() {
-            _selectedComanda = comanda;
-          });
-          debugPrint('✅ Comanda ${comanda.numero} selecionada automaticamente (tem pedidos pendentes)');
-        }
-        // Mobile: não navega automaticamente, apenas seleciona se estiver na lista
-      } catch (e) {
-        debugPrint('⚠️ Comanda $comandaIdMaisRecente não encontrada na lista: $e');
-        // Não faz nada se não encontrar
-      }
-    } catch (e) {
-      debugPrint('⚠️ Erro ao selecionar comanda com pedidos pendentes: $e');
-      // Não faz nada se não encontrar
-    }
+    _provider.filterComandas('');
   }
 
   Color _getStatusColor(String status) {
@@ -289,11 +161,16 @@ class _ComandasScreenState extends State<ComandasScreen> {
   Widget build(BuildContext context) {
     final adaptive = AdaptiveLayoutProvider.of(context);
     if (adaptive == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        body: Center(
+          child: H4ndLoading(size: 60),
+        ),
       );
     }
 
+    return ListenableBuilder(
+      listenable: _provider,
+      builder: (context, _) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: widget.hideAppBar
@@ -305,137 +182,366 @@ class _ComandasScreenState extends State<ComandasScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => _loadComandas(refresh: true),
+                onPressed: () => _provider.loadComandas(refresh: true),
             tooltip: 'Atualizar',
             color: AppTheme.textPrimary,
           ),
         ],
       ),
-      body: Column(
+          body: adaptive.isMobile
+              ? Column(
+                  children: [
+                    // Barra de ferramentas (apenas mobile)
+                    _buildBarraFerramentas(adaptive),
+                    // Lista de comandas - Layout mobile
+                    Expanded(
+                      child: _buildMobileLayout(adaptive),
+                    ),
+                  ],
+                )
+              : _buildDesktopLayout(adaptive),
+        );
+      },
+    );
+  }
+
+  /// Barra de ferramentas compacta usando o componente padrão
+  Widget _buildBarraFerramentas(AdaptiveLayoutProvider adaptive) {
+    return ElevatedToolbarContainer(
+      padding: EdgeInsets.symmetric(
+        horizontal: adaptive.isMobile ? 12 : 16,
+        vertical: adaptive.isMobile ? 8 : 10,
+      ),
+      child: Row(
         children: [
-          // Campo de pesquisa
-          Container(
-            padding: EdgeInsets.all(adaptive.isMobile ? 16 : 20),
-            color: Colors.white,
-            child: Container(
+          // Widget prefixo opcional (ex: toggle Mesas/Comandas)
+          if (widget.toolbarPrefix != null) ...[
+            widget.toolbarPrefix!,
+            const SizedBox(width: 8),
+          ],
+          // Botão de busca - compacto
+          _buildToolButtonCompact(
+            adaptive,
+            icon: Icons.search_rounded,
+            onTap: _abrirBuscaComanda,
+            isPrimary: true,
+            tooltip: 'Buscar comanda',
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // Indicador de filtro ativo (se houver) - compacto
+          if (_filtroAtivo != null) ...[
+            Expanded(
+              child: _buildFiltroBadgeCompact(adaptive),
+            ),
+            const SizedBox(width: 8),
+          ] else ...[
+            const Spacer(),
+          ],
+          
+          // Seletor de visualização - compacto
+          PopupMenuButton<MesaViewSize>(
+            onSelected: _atualizarTamanhoVisualizacao,
+            tooltip: 'Tamanho de visualização',
+            child: _buildToolButtonCompact(
+              adaptive,
+              icon: _comandaViewSize.icon,
+              onTap: null,
+              isPrimary: false,
+              tooltip: 'Visualização: ${_comandaViewSize.label}',
+            ),
+            itemBuilder: (context) => _buildViewSizeMenu(),
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // Botão de atualizar - compacto
+          _buildToolButtonCompact(
+            adaptive,
+            icon: Icons.refresh_rounded,
+            onTap: () => _provider.loadComandas(refresh: true),
+            isPrimary: false,
+            tooltip: 'Atualizar',
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Botão de ferramenta compacto (apenas ícone)
+  Widget _buildToolButtonCompact(
+    AdaptiveLayoutProvider adaptive, {
+    required IconData icon,
+    required VoidCallback? onTap,
+    required bool isPrimary,
+    required String tooltip,
+  }) {
+    final buttonContent = Container(
+      padding: EdgeInsets.all(adaptive.isMobile ? 10 : 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8F9FA),
-                borderRadius: BorderRadius.circular(adaptive.isMobile ? 14 : 16),
+        gradient: isPrimary
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.primaryColor,
+                  AppTheme.primaryColor.withOpacity(0.85),
+                ],
+              )
+            : null,
+        color: isPrimary ? null : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
                 border: Border.all(
-                  color: Colors.grey.shade200,
-                  width: 1,
+          color: isPrimary
+              ? AppTheme.primaryColor.withOpacity(0.2)
+              : Colors.grey.shade300,
+          width: isPrimary ? 0 : 1,
+        ),
+        boxShadow: isPrimary
+            ? [
+                BoxShadow(
+                  color: AppTheme.primaryColor.withOpacity(0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                  spreadRadius: 0,
                 ),
-              ),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'Pesquisar por número ou código de barras...',
-                  hintStyle: GoogleFonts.inter(
-                    color: Colors.grey.shade500,
-                    fontSize: adaptive.isMobile ? 14 : 15,
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search,
-                    color: Colors.grey.shade400,
-                    size: adaptive.isMobile ? 20 : 22,
-                  ),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(
-                            Icons.clear,
-                            color: Colors.grey.shade400,
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+      ),
+      child: Icon(
+        icon,
+        color: isPrimary ? Colors.white : AppTheme.textPrimary,
                             size: adaptive.isMobile ? 20 : 22,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _searchController.clear();
-                            });
-                          },
-                        )
-                      : const SizedBox.shrink(),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: adaptive.isMobile ? 16 : 20,
-                    vertical: adaptive.isMobile ? 14 : 16,
-                  ),
-                ),
+    );
+    
+    if (onTap == null) {
+      return Tooltip(
+        message: tooltip,
+        child: buttonContent,
+      );
+    }
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        child: Tooltip(
+          message: tooltip,
+          child: buttonContent,
+        ),
+      ),
+    );
+  }
+  
+  /// Badge de filtro ativo compacto
+  Widget _buildFiltroBadgeCompact(AdaptiveLayoutProvider adaptive) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: adaptive.isMobile ? 10 : 12,
+        vertical: adaptive.isMobile ? 6 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.25),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.filter_alt_rounded,
+            size: adaptive.isMobile ? 16 : 18,
+            color: AppTheme.primaryColor,
+          ),
+          SizedBox(width: adaptive.isMobile ? 6 : 8),
+          Flexible(
+            child: Text(
+              'Comanda: $_filtroAtivo',
                 style: GoogleFonts.inter(
-                  fontSize: adaptive.isMobile ? 15 : 16,
-                  color: AppTheme.textPrimary,
+                fontSize: adaptive.isMobile ? 13 : 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.primaryColor,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          SizedBox(width: adaptive.isMobile ? 6 : 8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _removerFiltro,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: adaptive.isMobile ? 16 : 18,
+                  color: AppTheme.primaryColor,
                 ),
               ),
             ),
-          ),
-          // Lista de comandas - Layout responsivo
-          Expanded(
-            child: adaptive.isMobile
-                ? _buildMobileLayout(adaptive)
-                : _buildDesktopLayout(adaptive),
           ),
         ],
       ),
     );
   }
 
-  /// Calcula o número de colunas dinamicamente baseado na largura disponível
-  int _calculateColumnsCount(AdaptiveLayoutProvider adaptive, double availableWidth) {
-    if (adaptive.isMobile) {
-      return 2; // Mobile sempre 2 colunas
-    }
-    
-    // Tamanho mínimo desejado para cada card (incluindo espaçamento)
-    const double minCardWidth = 140.0;
-    const double spacing = 12.0;
-    const double padding = 24.0 * 2;
-    
-    final double usableWidth = availableWidth - padding;
-    final int columns = (usableWidth / (minCardWidth + spacing)).floor();
-    
-    return columns.clamp(2, 10);
-  }
-
-  Widget _buildMobileLayout(AdaptiveLayoutProvider adaptive) {
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  /// Menu popup para seleção de tamanho
+  List<PopupMenuItem<MesaViewSize>> _buildViewSizeMenu() {
+    return MesaViewSize.values.map((size) {
+      return PopupMenuItem<MesaViewSize>(
+        value: size,
+        child: Row(
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: AppTheme.errorColor,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: GoogleFonts.inter(
-                fontSize: 16,
-                color: AppTheme.textSecondary,
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: _comandaViewSize == size
+                    ? AppTheme.primaryColor.withOpacity(0.1)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
               ),
-              textAlign: TextAlign.center,
+              child: Icon(
+                size.icon,
+                size: 20,
+                color: _comandaViewSize == size
+                    ? AppTheme.primaryColor
+                    : AppTheme.textSecondary,
+              ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => _loadComandas(refresh: true),
-              child: const Text('Tentar novamente'),
+            const SizedBox(width: 12),
+            Text(
+              size.label,
+              style: GoogleFonts.inter(
+                fontWeight: _comandaViewSize == size
+                    ? FontWeight.w600
+                    : FontWeight.normal,
+                color: _comandaViewSize == size
+                    ? AppTheme.primaryColor
+                    : AppTheme.textPrimary,
+              ),
             ),
+            if (_comandaViewSize == size) ...[
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check,
+                  size: 14,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ],
         ),
       );
+    }).toList();
+  }
+
+  /// Calcula o número de colunas dinamicamente baseado na largura disponível e tamanho de visualização
+  int _calculateColumnsCount(AdaptiveLayoutProvider adaptive, double availableWidth) {
+    if (adaptive.isMobile) {
+      // Mobile: baseado no tamanho de visualização
+      switch (_comandaViewSize) {
+        case MesaViewSize.pequeno:
+          return 3;
+        case MesaViewSize.medio:
+          return 2;
+        case MesaViewSize.grande:
+          return 2;
+      }
+    }
+    
+    // Desktop: calcula baseado no tamanho de visualização
+    final tamanhos = _calcularTamanhosCard(adaptive);
+    final larguraCard = tamanhos.minWidth;
+    final espacamento = adaptive.isMobile ? 8.0 : 16.0;
+    const double padding = 24.0 * 2;
+    
+    final double usableWidth = availableWidth - padding;
+    int colunas = (usableWidth / (larguraCard + espacamento)).floor();
+    
+    // Limites baseados no tamanho de visualização
+    switch (_comandaViewSize) {
+      case MesaViewSize.pequeno:
+        return colunas.clamp(4, 8);
+      case MesaViewSize.medio:
+        return colunas.clamp(3, 6);
+      case MesaViewSize.grande:
+        return colunas.clamp(2, 4);
+    }
+  }
+
+  /// Calcula tamanhos do card baseado no tamanho de visualização
+  _ComandaCardSizes _calcularTamanhosCard(AdaptiveLayoutProvider adaptive) {
+    final baseSize = adaptive.isMobile ? 0.9 : 1.0;
+    
+    switch (_comandaViewSize) {
+      case MesaViewSize.pequeno:
+        return _ComandaCardSizes(
+          iconSize: 20.0 * baseSize,
+          numeroSize: 20.0 * baseSize,
+          statusSize: 8.0 * baseSize,
+          cardPadding: 6.0 * baseSize,
+          borderRadius: 12.0,
+          minWidth: 80.0,
+          minHeight: 80.0,
+        );
+      case MesaViewSize.medio:
+        return _ComandaCardSizes(
+          iconSize: 28.0 * baseSize,
+          numeroSize: 28.0 * baseSize,
+          statusSize: 10.0 * baseSize,
+          cardPadding: 10.0 * baseSize,
+          borderRadius: 14.0,
+          minWidth: 100.0,
+          minHeight: 100.0,
+        );
+      case MesaViewSize.grande:
+        return _ComandaCardSizes(
+          iconSize: 42.0 * baseSize,
+          numeroSize: 36.0 * baseSize,
+          statusSize: 12.0 * baseSize,
+          cardPadding: 14.0 * baseSize,
+          borderRadius: 16.0,
+          minWidth: 140.0,
+          minHeight: 140.0,
+        );
+    }
+  }
+
+  Widget _buildMobileLayout(AdaptiveLayoutProvider adaptive) {
+    if (_provider.errorMessage != null) {
+      return _buildErrorWidget(adaptive);
     }
 
-    if (_isLoading && _comandas.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (_provider.isLoading && _provider.comandas.isEmpty) {
+      return Center(child: H4ndLoading(size: 60));
     }
 
-    if (_filteredComandas.isEmpty) {
+    if (_provider.filteredComandas.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              _searchController.text.isNotEmpty
+              _filtroAtivo != null
                   ? Icons.search_off
                   : Icons.receipt_long_outlined,
               size: 64,
@@ -443,7 +549,7 @@ class _ComandasScreenState extends State<ComandasScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              _searchController.text.isNotEmpty
+              _filtroAtivo != null
                   ? 'Nenhuma comanda encontrada'
                   : 'Nenhuma comanda cadastrada',
               style: GoogleFonts.inter(
@@ -456,18 +562,26 @@ class _ComandasScreenState extends State<ComandasScreen> {
       );
     }
 
-    return GridView.builder(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columnsCount = _calculateColumnsCount(adaptive, constraints.maxWidth);
+        return RefreshIndicator(
+          onRefresh: () => _provider.loadComandas(refresh: true),
+          child: GridView.builder(
       padding: EdgeInsets.all(adaptive.isMobile ? 16 : 20),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+              crossAxisCount: columnsCount,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
         childAspectRatio: 1.0,
       ),
-      itemCount: _filteredComandas.length,
+            itemCount: _provider.filteredComandas.length,
       itemBuilder: (context, index) {
-        final comanda = _filteredComandas[index];
+              final comanda = _provider.filteredComandas[index];
         return _buildComandaCard(comanda, adaptive);
+            },
+          ),
+        );
       },
     );
   }
@@ -481,83 +595,72 @@ class _ComandasScreenState extends State<ComandasScreen> {
         
         return Row(
           children: [
-            // Coluna esquerda: GridView de comandas
+            // Coluna esquerda: Barra de ferramentas + GridView de comandas
             Expanded(
               flex: 4, // 40% da largura
-              child: _errorMessage != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 64,
-                            color: AppTheme.errorColor,
+              child: Column(
+                children: [
+                  // Barra de ferramentas (apenas desktop - dentro da coluna de comandas)
+                  _buildBarraFerramentas(adaptive),
+                  // GridView de comandas
+                  Expanded(
+                    child: _provider.errorMessage != null
+                        ? _buildErrorWidget(adaptive)
+                        : Container(
+                            color: Colors.white,
+                            child: _provider.isLoading && _provider.comandas.isEmpty
+                                ? Center(
+                                    child: H4ndLoading(size: 60),
+                                  )
+                                : _provider.filteredComandas.isEmpty
+                                    ? Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              _filtroAtivo != null
+                                                  ? Icons.search_off
+                                                  : Icons.receipt_long_outlined,
+                                              size: 64,
+                                              color: Colors.grey.shade400,
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              _filtroAtivo != null
+                                                  ? 'Nenhuma comanda encontrada'
+                                                  : 'Nenhuma comanda cadastrada',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 16,
+                                                color: AppTheme.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : RefreshIndicator(
+                                        onRefresh: () => _provider.loadComandas(refresh: true),
+                                        child: GridView.builder(
+                                          padding: EdgeInsets.all(adaptive.isMobile ? 16 : 24),
+                                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                            crossAxisCount: columnsCount,
+                                            crossAxisSpacing: 12,
+                                            mainAxisSpacing: 12,
+                                            childAspectRatio: adaptive.isDesktop ? 1.0 : 1.05,
+                                          ),
+                                          itemCount: _provider.filteredComandas.length,
+                                          itemBuilder: (context, index) {
+                                            final comanda = _provider.filteredComandas[index];
+                                            final isSelected = _provider.selectedComanda?.id == comanda.id;
+                                            return _buildComandaCard(comanda, adaptive, isSelected: isSelected);
+                                          },
+                                          addAutomaticKeepAlives: false,
+                                          addRepaintBoundaries: false,
+                                        ),
+                                      ),
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _errorMessage!,
-                            style: GoogleFonts.inter(
-                              fontSize: 16,
-                              color: AppTheme.textSecondary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 24),
-                          ElevatedButton(
-                            onPressed: () => _loadComandas(refresh: true),
-                            child: const Text('Tentar novamente'),
-                          ),
-                        ],
-                      ),
-                    )
-                  : _isLoading && _comandas.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : _filteredComandas.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    _searchController.text.isNotEmpty
-                                        ? Icons.search_off
-                                        : Icons.receipt_long_outlined,
-                                    size: 64,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    _searchController.text.isNotEmpty
-                                        ? 'Nenhuma comanda encontrada'
-                                        : 'Nenhuma comanda cadastrada',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 16,
-                                      color: AppTheme.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: () => _loadComandas(refresh: true),
-                              child: GridView.builder(
-                                padding: EdgeInsets.all(adaptive.isMobile ? 16 : 24),
-                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: columnsCount,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: adaptive.isDesktop ? 1.0 : 1.05,
-                                ),
-                                itemCount: _filteredComandas.length,
-                                itemBuilder: (context, index) {
-                                  final comanda = _filteredComandas[index];
-                                  final isSelected = _selectedComanda?.id == comanda.id;
-                                  return _buildComandaCard(comanda, adaptive, isSelected: isSelected);
-                                },
-                                addAutomaticKeepAlives: false,
-                                addRepaintBoundaries: false,
-                              ),
-                            ),
+                  ),
+                ],
+              ),
             ),
             // Divisor vertical
             Container(
@@ -567,17 +670,17 @@ class _ComandasScreenState extends State<ComandasScreen> {
             // Coluna direita: Detalhes da comanda selecionada
             Expanded(
               flex: 6, // 60% da largura
-              child: _selectedComanda == null
+              child: _provider.selectedComanda == null
                   ? _buildEmptyDetailsPanel(adaptive)
                   : DetalhesProdutosMesaScreen(
-                      key: ValueKey('comanda_detalhes_${_selectedComanda!.id}'),
+                      key: ValueKey('comanda_detalhes_${_provider.selectedComanda!.id}'),
                       entidade: MesaComandaInfo(
-                        id: _selectedComanda!.id,
-                        numero: _selectedComanda!.numero,
-                        descricao: _selectedComanda!.descricao,
-                        status: _selectedComanda!.status,
+                        id: _provider.selectedComanda!.id,
+                        numero: _provider.selectedComanda!.numero,
+                        descricao: _provider.selectedComanda!.descricao,
+                        status: _provider.getStatusVisualComanda(_provider.selectedComanda!),
                         tipo: TipoEntidade.comanda,
-                        codigoBarras: _selectedComanda!.codigoBarras,
+                        codigoBarras: _provider.selectedComanda!.codigoBarras,
                       ),
                     ),
             ),
@@ -585,6 +688,144 @@ class _ComandasScreenState extends State<ComandasScreen> {
         );
       },
     );
+  }
+
+  /// Widget de erro bonito e amigável
+  Widget _buildErrorWidget(AdaptiveLayoutProvider adaptive) {
+    final isConnectionError = _isConnectionError(_provider.errorMessage ?? '');
+    
+    return Container(
+      color: Colors.white,
+      padding: EdgeInsets.all(adaptive.isMobile ? 24 : 32),
+      child: Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Ícone grande e bonito
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppTheme.errorColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isConnectionError ? Icons.wifi_off_rounded : Icons.error_outline_rounded,
+                  size: adaptive.isMobile ? 72 : 80,
+                  color: AppTheme.errorColor,
+                ),
+              ),
+              const SizedBox(height: 32),
+              
+              // Título
+              Text(
+                isConnectionError 
+                    ? 'Sistema Offline'
+                    : 'Ops! Algo deu errado',
+                style: GoogleFonts.inter(
+                  fontSize: adaptive.isMobile ? 24 : 28,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              
+              // Mensagem amigável
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: adaptive.isMobile ? 16 : 32,
+                ),
+                child: Text(
+                  isConnectionError
+                      ? 'Sistema offline. Não é possível consultar as comandas atualizadas. Verifique sua conexão com o servidor e tente novamente.'
+                      : 'Não foi possível carregar as comandas. Por favor, tente novamente.',
+                  style: GoogleFonts.inter(
+                    fontSize: adaptive.isMobile ? 15 : 16,
+                    fontWeight: FontWeight.w400,
+                    color: AppTheme.textSecondary,
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 32),
+              
+              // Botão de tentar novamente estilizado
+              ElevatedButton.icon(
+                onPressed: _provider.isLoading 
+                    ? null 
+                    : () => _provider.loadComandas(refresh: true),
+                icon: _provider.isLoading
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: H4ndLoadingCompact(
+                          size: 20,
+                          blueColor: Colors.white,
+                          greenColor: Colors.white70,
+                        ),
+                      )
+                    : const Icon(Icons.refresh_rounded),
+                label: Text(
+                  _provider.isLoading ? 'Carregando...' : 'Tentar novamente',
+                  style: GoogleFonts.inter(
+                    fontSize: adaptive.isMobile ? 15 : 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: adaptive.isMobile ? 32 : 40,
+                    vertical: adaptive.isMobile ? 16 : 18,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+              
+              // Mensagem de erro técnica (opcional, menor)
+              if (!isConnectionError && _provider.errorMessage != null) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _provider.errorMessage!,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// Verifica se o erro é relacionado a conexão/rede
+  bool _isConnectionError(String errorMessage) {
+    final lowerMessage = errorMessage.toLowerCase();
+    return lowerMessage.contains('connection') ||
+        lowerMessage.contains('conexão') ||
+        lowerMessage.contains('network') ||
+        lowerMessage.contains('rede') ||
+        lowerMessage.contains('timeout') ||
+        lowerMessage.contains('socket') ||
+        lowerMessage.contains('failed host lookup') ||
+        lowerMessage.contains('no internet') ||
+        lowerMessage.contains('sem internet');
   }
 
   /// Painel vazio quando nenhuma comanda está selecionada
@@ -617,17 +858,27 @@ class _ComandasScreenState extends State<ComandasScreen> {
   }
 
   Widget _buildComandaCard(ComandaListItemDto comanda, AdaptiveLayoutProvider adaptive, {bool isSelected = false}) {
-    final isEmUso = comanda.status.toLowerCase() == 'em uso' || comanda.temVendaAtiva;
-    final statusColor = _getStatusColor(comanda.status);
+    // Usa status visual que considera pedidos pendentes locais
+    final statusVisual = _provider.getStatusVisualComanda(comanda);
+    final statusColor = _getStatusColor(statusVisual);
     final currencyFormat = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final pedidosPendentes = _provider.getPedidosPendentesCount(comanda.id);
+
+    // Tamanhos baseados na preferência do usuário
+    final tamanhos = _calcularTamanhosCard(adaptive);
 
     return Material(
       color: Colors.transparent,
-      key: ValueKey('comanda_${comanda.numero}_${comanda.id}'),
+      // Key inclui status visual para forçar rebuild quando status mudar
+      key: ValueKey('comanda_${comanda.numero}_${comanda.id}_$statusVisual'),
       child: InkWell(
         onTap: () {
+          final adaptive = AdaptiveLayoutProvider.of(context);
+          if (adaptive == null) return;
+          
+          // Mobile: navega para outra tela
+          // Tablet/Desktop: atualiza comanda selecionada
           if (adaptive.isMobile) {
-            // Mobile: navega para tela de detalhes
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => AdaptiveLayout(
@@ -636,74 +887,91 @@ class _ComandasScreenState extends State<ComandasScreen> {
               ),
             );
           } else {
-            // Desktop: atualiza seleção
-            setState(() {
-              _selectedComanda = comanda;
-            });
+            // Tablet/Desktop: atualiza estado para mostrar painel lateral
+            _provider.setSelectedComanda(comanda);
           }
         },
-        borderRadius: BorderRadius.circular(adaptive.isMobile ? 14 : 16),
-        child: Container(
+        borderRadius: BorderRadius.circular(tamanhos.borderRadius),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          constraints: BoxConstraints(
+            minWidth: tamanhos.minWidth,
+            minHeight: tamanhos.minHeight,
+          ),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(adaptive.isMobile ? 14 : 16),
+            color: isSelected
+                ? AppTheme.primaryColor.withOpacity(0.05)
+                : statusColor.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(tamanhos.borderRadius),
             border: Border.all(
-              color: isSelected
+              color: isSelected 
                   ? AppTheme.primaryColor
-                  : (isEmUso 
-                      ? statusColor.withOpacity(0.3)
-                      : Colors.grey.shade200),
-              width: isSelected ? 2 : (isEmUso ? 2 : 1),
+                  : statusColor.withOpacity(0.7),
+              width: isSelected ? 2.5 : 2.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: isEmUso
-                    ? statusColor.withOpacity(0.15)
-                    : Colors.black.withOpacity(0.06),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                color: isSelected
+                    ? AppTheme.primaryColor.withOpacity(0.2)
+                    : statusColor.withOpacity(0.3),
+                blurRadius: isSelected ? 16 : 12,
+                offset: Offset(0, isSelected ? 4 : 3),
                 spreadRadius: 0,
               ),
             ],
           ),
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(adaptive.isDesktop ? 8.0 : (adaptive.isMobile ? 8.0 : 10.0)),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Ícone e número lado a lado
-                  Row(
+          child: Stack(
+            children: [
+              // Conteúdo principal - layout iconizado, centralizado e ocupando mais espaço
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(tamanhos.cardPadding),
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Ícone centralizado - elemento principal iconizado
                       Container(
-                        padding: EdgeInsets.all(adaptive.isDesktop ? 6 : (adaptive.isMobile ? 6 : 8)),
+                        padding: EdgeInsets.all(tamanhos.cardPadding * 0.8),
                         decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(adaptive.isDesktop ? 8 : (adaptive.isMobile ? 8 : 10)),
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: statusColor.withOpacity(0.6),
+                            width: 2.0,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: statusColor.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                              spreadRadius: 1,
+                            ),
+                          ],
                         ),
                         child: Icon(
                           Icons.receipt_long,
-                          size: adaptive.isDesktop ? 18 : (adaptive.isMobile ? 18 : 20),
+                          size: tamanhos.iconSize,
                           color: statusColor,
                         ),
                       ),
-                      SizedBox(width: adaptive.isDesktop ? 6 : (adaptive.isMobile ? 6 : 8)),
+                      
+                      SizedBox(height: tamanhos.cardPadding * 0.8),
+                      
+                      // Número da comanda - com maior destaque
                       Flexible(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: double.infinity,
-                          ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
                           child: Text(
                             comanda.numero,
                             style: GoogleFonts.inter(
-                              fontSize: adaptive.isDesktop ? 14 : (adaptive.isMobile ? 14 : 16),
-                              fontWeight: FontWeight.w700,
+                              fontSize: tamanhos.numeroSize,
+                              fontWeight: FontWeight.w800,
                               color: AppTheme.textPrimary,
+                              height: 1.0,
+                              letterSpacing: 1.0,
                             ),
                             textAlign: TextAlign.center,
                             maxLines: 1,
@@ -711,44 +979,93 @@ class _ComandasScreenState extends State<ComandasScreen> {
                           ),
                         ),
                       ),
+                      
+                      SizedBox(height: tamanhos.cardPadding * 0.6),
+                      
+                      // Label de status - texto com melhor contraste e legibilidade
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: tamanhos.statusSize * 0.6,
+                              vertical: tamanhos.statusSize * 0.25,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(tamanhos.statusSize * 0.5),
+                            ),
+                            child: Text(
+                              statusVisual.toUpperCase(),
+                              style: GoogleFonts.inter(
+                                fontSize: tamanhos.statusSize,
+                                fontWeight: FontWeight.w700,
+                                color: statusColor,
+                                letterSpacing: 0.8,
+                                height: 1.0,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      // Informações adicionais (se houver pedidos)
+                      if (comanda.totalPedidosAtivos > 0) ...[
+                        SizedBox(height: tamanhos.cardPadding * 0.4),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              currencyFormat.format(comanda.valorTotalPedidosAtivos),
+                              style: GoogleFonts.inter(
+                                fontSize: tamanhos.statusSize * 1.1,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primaryColor,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
-                  SizedBox(height: adaptive.isDesktop ? 6 : (adaptive.isMobile ? 6 : 8)),
-                  // Status badge
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: adaptive.isDesktop ? 8 : (adaptive.isMobile ? 8 : 10),
-                      vertical: adaptive.isDesktop ? 4 : (adaptive.isMobile ? 4 : 5),
-                    ),
+                ),
+              ),
+              
+              // Badge de pedidos pendentes (se houver) - posicionado no canto superior direito
+              if (pedidosPendentes > 0)
+                Positioned(
+                  top: tamanhos.cardPadding * 0.5,
+                  right: tamanhos.cardPadding * 0.5,
+                  child: Container(
+                    padding: EdgeInsets.all(tamanhos.statusSize * 0.5),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(adaptive.isDesktop ? 6 : (adaptive.isMobile ? 6 : 8)),
+                      color: Colors.orange.shade600,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orange.shade600.withOpacity(0.4),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Text(
-                      comanda.status.toUpperCase(),
+                      '$pedidosPendentes',
                       style: GoogleFonts.inter(
-                        fontSize: adaptive.isDesktop ? 9 : (adaptive.isMobile ? 9 : 10),
+                        fontSize: tamanhos.statusSize * 0.9,
                         fontWeight: FontWeight.w700,
-                        color: statusColor,
-                        letterSpacing: 0.5,
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                  // Informações adicionais (se houver pedidos)
-                  if (comanda.totalPedidosAtivos > 0) ...[
-                    SizedBox(height: adaptive.isDesktop ? 4 : (adaptive.isMobile ? 4 : 6)),
-                    Text(
-                      currencyFormat.format(comanda.valorTotalPedidosAtivos),
-                      style: GoogleFonts.inter(
-                        fontSize: adaptive.isDesktop ? 11 : (adaptive.isMobile ? 11 : 12),
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+                ),
+            ],
           ),
         ),
       ),

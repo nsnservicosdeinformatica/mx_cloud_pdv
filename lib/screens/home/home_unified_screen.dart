@@ -17,8 +17,8 @@ import '../../widgets/home/draggable_resizable_widget.dart';
 import '../../widgets/home/grid_layout_manager.dart';
 import '../sync/sync_dialog.dart';
 import '../pedidos/pedidos_sync_screen.dart';
-import '../mesas/mesas_screen.dart';
-import '../comandas/comandas_screen.dart';
+import '../mesas_comandas/mesas_comandas_screen.dart';
+import '../mesas_comandas/mesas_comandas_screen.dart' show TipoVisualizacao;
 import '../pedidos/restaurante/novo_pedido_restaurante_screen.dart';
 import '../pedidos/restaurante/dialogs/selecionar_mesa_comanda_dialog.dart';
 import '../patio/patio_screen.dart';
@@ -101,7 +101,9 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => AdaptiveLayout(
-              child: const MesasScreen(),
+              child: const MesasComandasScreen(
+                tipoInicial: TipoVisualizacao.mesas,
+              ),
             ),
           ),
         );
@@ -110,7 +112,9 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => AdaptiveLayout(
-              child: const ComandasScreen(),
+              child: const MesasComandasScreen(
+                tipoInicial: TipoVisualizacao.comandas,
+              ),
             ),
           ),
         );

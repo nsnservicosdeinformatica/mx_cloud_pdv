@@ -3,8 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../presentation/providers/auth_provider.dart';
 import '../../../presentation/providers/services_provider.dart';
 import '../../../screens/home/home_unified_screen.dart';
-import '../../../screens/mesas/mesas_screen.dart';
-import '../../../screens/comandas/comandas_screen.dart';
+import '../../../screens/mesas_comandas/mesas_comandas_screen.dart';
 import '../../../screens/pedidos/pedidos_screen.dart';
 import '../../../screens/balcao/balcao_screen.dart';
 import '../../../screens/patio/patio_screen.dart';
@@ -123,32 +122,14 @@ class _HomeNavigationState extends State<HomeNavigation> {
 
     switch (_setor) {
       case 2: // Restaurante
-        // Verifica configuração do restaurante para decidir se mostra comandas
-        // Usa listen: false para não rebuildar quando configuração mudar
-        final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
-        final configRestaurante = servicesProvider.configuracaoRestaurante;
-        // Se configuração não foi carregada ainda, assume que mostra comandas (padrão seguro)
-        final mostraComandas = configRestaurante == null || configRestaurante.controlePorComanda;
-        
         final items = [
           homeItem,
           NavigationItem(
             icon: Icons.table_restaurant,
-            label: 'Mesas',
-            screen: const MesasScreen(hideAppBar: true),
+            label: 'Mesas e Comandas',
+            screen: const MesasComandasScreen(hideAppBar: true),
           ),
         ];
-        
-        // Só adiciona comandas se configuração permitir
-        if (mostraComandas) {
-          items.add(
-            NavigationItem(
-              icon: Icons.receipt_long,
-              label: 'Comandas',
-              screen: const ComandasScreen(hideAppBar: true),
-            ),
-          );
-        }
         
         // Adiciona item "Balcão" para venda balcão
         // Não usa const para garantir que a tela seja reconstruída quando necessário

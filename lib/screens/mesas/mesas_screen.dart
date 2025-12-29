@@ -49,10 +49,13 @@ class _MesaCardSizes {
 class MesasScreen extends StatefulWidget {
   /// Se deve ocultar o AppBar (usado quando acessada via bottom navigation)
   final bool hideAppBar;
+  /// Widget opcional para adicionar no início da barra de ferramentas
+  final Widget? toolbarPrefix;
 
   const MesasScreen({
     super.key,
     this.hideAppBar = false,
+    this.toolbarPrefix,
   });
 
   @override
@@ -314,6 +317,11 @@ class _MesasScreenState extends State<MesasScreen> {
       ),
       child: Row(
         children: [
+          // Widget prefixo opcional (ex: toggle Mesas/Comandas)
+          if (widget.toolbarPrefix != null) ...[
+            widget.toolbarPrefix!,
+            const SizedBox(width: 8),
+          ],
           // Botão de busca - compacto
           _buildToolButtonCompact(
             adaptive,

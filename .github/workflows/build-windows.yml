@@ -58,13 +58,93 @@ jobs:
 
       - name: Create Windows platform files (if needed)
         run: |
-          # Garantir que o pubspec.yaml tem o nome correto antes de criar a plataforma
+          # Garantir que o pubspec.yaml tem o nome correto ANTES de qualquer operação do Flutter
           $currentName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          Write-Host "Current package name in pubspec.yaml: $currentName"
           if ($currentName -ne 'mx_cloud_pdv') {
             Write-Host "Fixing package name from '$currentName' to 'mx_cloud_pdv'"
             (Get-Content pubspec.yaml) -replace '^name:\s*.+$', 'name: mx_cloud_pdv' | Set-Content pubspec.yaml
+            $verifyName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+            Write-Host "Verified package name after fix: $verifyName"
           }
-          flutter create --platforms=windows .
+          
+          # Verificar se a plataforma Windows já existe na raiz (não em android/)
+          if (Test-Path "windows") {
+            Write-Host "Windows platform already exists in root, skipping flutter create"
+          } else {
+            Write-Host "Creating Windows platform..."
+            Write-Host "NOTE: Flutter may validate package name based on directory name 'h4nd-pdv'"
+            Write-Host "This is a known issue when the repository name contains hyphens."
+            Write-Host "We'll attempt to create the platform, but if it fails, we'll use a workaround."
+            
+            # O Flutter pode estar validando o nome do pacote baseado no diretório
+            # Vamos garantir que o pubspec.yaml está correto e fazer pub get primeiro
+            flutter pub get
+            
+            # Tentar criar a plataforma Windows com tratamento de erro robusto
+            $ErrorActionPreference = 'Continue'
+            $createOutput = @()
+            $createExitCode = 0
+            
+            try {
+              flutter create --platforms=windows . 2>&1 | ForEach-Object {
+                $createOutput += $_
+                Write-Host $_
+              }
+              $createExitCode = $LASTEXITCODE
+            } catch {
+              $createOutput += $_.Exception.Message
+              Write-Host "Exception caught: $($_.Exception.Message)"
+              $createExitCode = 1
+            }
+            
+            # Verificar se houve erro relacionado ao nome do pacote
+            $hasPackageNameError = $false
+            $createOutput | ForEach-Object {
+              if ($_ -match "is not a valid Dart package name" -or $_ -match "h4nd-pdv") {
+                $hasPackageNameError = $true
+                Write-Host "ERROR DETECTED: $_"
+              }
+            }
+            
+            if ($hasPackageNameError -or $createExitCode -ne 0) {
+              Write-Host "=========================================="
+              Write-Host "ERROR: flutter create failed"
+              Write-Host "=========================================="
+              Write-Host "Full output:"
+              $createOutput | ForEach-Object { Write-Host $_ }
+              
+              # Verificar se o problema é realmente o nome do pacote
+              $nameCheck = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+              Write-Host "Package name in pubspec.yaml: $nameCheck"
+              
+              if ($nameCheck -eq 'mx_cloud_pdv') {
+                Write-Host "=========================================="
+                Write-Host "WORKAROUND: Flutter is using directory name 'h4nd-pdv' instead of package name"
+                Write-Host "Solution: Skip flutter create and use existing windows/ directory if available"
+                Write-Host "=========================================="
+                
+                # Verificar se há um diretório windows em android/ que podemos copiar
+                if (Test-Path "android\windows") {
+                  Write-Host "Found android\windows directory. Copying to root..."
+                  Copy-Item -Path "android\windows" -Destination "windows" -Recurse -Force
+                  Write-Host "Windows platform copied from android\windows"
+                } elseif (-not (Test-Path "windows")) {
+                  Write-Host "ERROR: Windows platform does not exist and cannot be created."
+                  Write-Host "The Flutter tool is rejecting the directory name 'h4nd-pdv'."
+                  Write-Host "Permanent solution: Rename the repository from 'h4nd-pdv' to 'h4nd_pdv' or 'mx_cloud_pdv'"
+                  Write-Host "Temporary workaround: Create the windows/ directory structure manually"
+                  exit 1
+                }
+              } else {
+                Write-Host "Fixing package name and retrying..."
+                (Get-Content pubspec.yaml) -replace '^name:\s*.+$', 'name: mx_cloud_pdv' | Set-Content pubspec.yaml
+                flutter create --platforms=windows .
+              }
+            } else {
+              Write-Host "flutter create completed successfully"
+            }
+          }
 
       - name: Verify package name after platform creation
         run: |

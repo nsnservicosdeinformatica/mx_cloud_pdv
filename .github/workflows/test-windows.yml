@@ -24,11 +24,59 @@ jobs:
       - name: Check Windows support
         run: flutter config --enable-windows-desktop
 
+      - name: Verify pubspec.yaml package name
+        run: |
+          $packageName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          Write-Host "Package name from pubspec.yaml: $packageName"
+          if ($packageName -notmatch '^[a-z0-9_]+$') {
+            Write-Host "ERROR: Invalid package name: $packageName"
+            Write-Host "Package name must be lowercase with underscores only (e.g., mx_cloud_pdv)"
+            exit 1
+          }
+
       - name: Create Windows platform
-        run: flutter create --platforms=windows .
+        run: |
+          # Garantir que o pubspec.yaml tem o nome correto antes de criar a plataforma
+          $currentName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          if ($currentName -ne 'mx_cloud_pdv') {
+            Write-Host "Fixing package name from '$currentName' to 'mx_cloud_pdv'"
+            (Get-Content pubspec.yaml) -replace '^name:\s*.+$', 'name: mx_cloud_pdv' | Set-Content pubspec.yaml
+          }
+          flutter create --platforms=windows .
+
+      - name: Verify package name after platform creation
+        run: |
+          $packageName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          Write-Host "Package name after platform creation: $packageName"
+          if ($packageName -ne 'mx_cloud_pdv') {
+            Write-Host "ERROR: Package name was changed! Expected 'mx_cloud_pdv', got: $packageName"
+            Write-Host "Restoring correct package name..."
+            (Get-Content pubspec.yaml) -replace '^name:\s*.+$', 'name: mx_cloud_pdv' | Set-Content pubspec.yaml
+            Write-Host "Package name restored to: mx_cloud_pdv"
+            # Verificar novamente
+            $verifyName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+            Write-Host "Verified package name: $verifyName"
+          }
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          # Garantir que o nome do pacote está correto antes de pub get
+          $packageName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          if ($packageName -ne 'mx_cloud_pdv') {
+            Write-Host "Fixing package name before pub get: $packageName -> mx_cloud_pdv"
+            (Get-Content pubspec.yaml) -replace '^name:\s*.+$', 'name: mx_cloud_pdv' | Set-Content pubspec.yaml
+          }
+          flutter pub get
+
+      - name: Final package name verification
+        run: |
+          $packageName = (Get-Content pubspec.yaml | Select-String '^name:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          Write-Host "Final package name verification: $packageName"
+          if ($packageName -ne 'mx_cloud_pdv') {
+            Write-Host "ERROR: Package name is incorrect: $packageName (expected: mx_cloud_pdv)"
+            exit 1
+          }
+          Write-Host "✓ Package name is correct: $packageName"
 
       - name: Analyze code
         run: flutter analyze

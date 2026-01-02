@@ -1,12 +1,15 @@
 import '../../../../core/printing/print_provider.dart';
 import '../../../../core/printing/print_data.dart';
+import '../../../../core/printing/nfce_print_data.dart';
 import 'package:flutter/foundation.dart';
 import 'package:stone_payments/stone_payments.dart';
 import 'package:stone_payments/models/item_print_model.dart';
 import 'package:stone_payments/enums/item_print_type_enum.dart';
 import 'package:stone_payments/enums/type_owner_print_enum.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
 
 /// Provider de impressão Stone Thermal (usa SDK Stone Payments para impressão)
 /// 
@@ -501,6 +504,599 @@ class StoneThermalAdapter implements PrintProvider {
   }
   
   @override
+  Future<PrintResult> printNfce(NfcePrintData data) async {
+    // Garante que o SDK está inicializado e ativado
+    if (!_initialized) {
+      await initialize();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    
+    // Verifica se o SDK está realmente ativado antes de imprimir
+    bool activationVerified = false;
+    int attempts = 0;
+    const maxAttempts = 3;
+    
+    while (!activationVerified && attempts < maxAttempts) {
+      try {
+        final activated = await _activateStone();
+        if (activated) {
+          activationVerified = true;
+          debugPrint('✅ [Print NFC-e] SDK ativado e verificado (tentativa ${attempts + 1})');
+        } else {
+          attempts++;
+          if (attempts < maxAttempts) {
+            debugPrint('⚠️ [Print NFC-e] Ativação retornou false, aguardando e tentando novamente... (tentativa ${attempts + 1}/$maxAttempts)');
+            await Future.delayed(const Duration(milliseconds: 300));
+          } else {
+            debugPrint('ℹ️ [Print NFC-e] Ativação retornou false após $maxAttempts tentativas, mas continuando');
+            activationVerified = true;
+          }
+        }
+      } catch (e) {
+        final errorStr = e.toString().toLowerCase();
+        if (errorStr.contains('already') || 
+            errorStr.contains('já') || 
+            errorStr.contains('koin') ||
+            errorStr.contains('started')) {
+          activationVerified = true;
+          debugPrint('ℹ️ [Print NFC-e] SDK já estava ativado');
+        } else {
+          attempts++;
+          if (attempts < maxAttempts) {
+            debugPrint('⚠️ [Print NFC-e] Erro ao verificar ativação, tentando novamente... (tentativa ${attempts + 1}/$maxAttempts): $e');
+            await Future.delayed(const Duration(milliseconds: 300));
+          } else {
+            debugPrint('⚠️ [Print NFC-e] Não foi possível verificar ativação após $maxAttempts tentativas, mas continuando');
+            activationVerified = true;
+          }
+        }
+      }
+    }
+    
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    try {
+      debugPrint('🖨️ Imprimindo NFC-e na Stone Thermal usando SDK...');
+      
+      // Constrói lista de itens para impressão usando ItemPrintModel
+      final items = <ItemPrintModel>[];
+      
+      // ========== CABEÇALHO ==========
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      // Razão Social
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText(data.empresaRazaoSocial, 32),
+      ));
+      
+      // Nome Fantasia (se houver)
+      if (data.empresaNomeFantasia != null && data.empresaNomeFantasia!.isNotEmpty) {
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText(data.empresaNomeFantasia!, 32),
+        ));
+      }
+      
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      // CNPJ
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('CNPJ: ${_formatCNPJ(data.empresaCnpj)}', 32),
+      ));
+      
+      // Inscrição Estadual
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('IE: ${data.empresaInscricaoEstadual}', 32),
+      ));
+      
+      // Endereço (se houver)
+      if (data.empresaEnderecoCompleto != null && data.empresaEnderecoCompleto!.isNotEmpty) {
+        final enderecoLinhas = _wrapText(data.empresaEnderecoCompleto!, 32);
+        for (final linha in enderecoLinhas) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: _centerText(linha, 32),
+          ));
+        }
+      }
+      
+      // Linha separadora
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '────────────────────────────────',
+      ));
+      
+      // ========== DADOS DA NOTA FISCAL ==========
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('DANFE NFC-e', 32),
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      // Número e Série
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('Nº ${data.numero}  Série ${data.serie}', 32),
+      ));
+      
+      // Chave de Acesso (formatada em grupos de 4)
+      if (data.chaveAcesso.isNotEmpty) {
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText('Chave de Acesso:', 32),
+        ));
+        
+        final chaveFormatada = _formatarChaveAcesso(data.chaveAcesso);
+        final chaveLinhas = _wrapText(chaveFormatada, 32);
+        for (final linha in chaveLinhas) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: _centerText(linha, 32),
+          ));
+        }
+      }
+      
+      // Data de Emissão
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('Emissão: ${_formatDateTime(data.dataEmissao)}', 32),
+      ));
+      
+      // Data de Autorização (se houver)
+      if (data.dataAutorizacao != null) {
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText('Autorização: ${_formatDateTime(data.dataAutorizacao!)}', 32),
+        ));
+      }
+      
+      // Protocolo (se houver)
+      if (data.protocoloAutorizacao != null && data.protocoloAutorizacao!.isNotEmpty) {
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText('Protocolo: ${data.protocoloAutorizacao}', 32),
+        ));
+      }
+      
+      // Linha separadora
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '────────────────────────────────',
+      ));
+      
+      // ========== DADOS DO CLIENTE (se informado) ==========
+      if (data.clienteNome != null && data.clienteNome!.isNotEmpty) {
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'CONSUMIDOR',
+        ));
+        
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'Nome: ${data.clienteNome}',
+        ));
+        
+        if (data.clienteCPF != null && data.clienteCPF!.isNotEmpty) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: 'CPF: ${_formatCPF(data.clienteCPF!)}',
+          ));
+        }
+        
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '────────────────────────────────',
+        ));
+      }
+      
+      // ========== ITENS ==========
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: 'ITENS',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      for (var i = 0; i < data.itens.length; i++) {
+        final item = data.itens[i];
+        
+        // Descrição do produto
+        final descLinhas = _wrapText(item.descricao, 32);
+        for (final linha in descLinhas) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: linha,
+          ));
+        }
+        
+        // Código, NCM, CFOP
+        var codigoInfo = 'Cód: ${item.codigo}';
+        if (item.ncm != null && item.ncm!.isNotEmpty) {
+          codigoInfo += '  NCM: ${item.ncm}';
+        }
+        if (item.cfop != null && item.cfop!.isNotEmpty) {
+          codigoInfo += '  CFOP: ${item.cfop}';
+        }
+        final codigoLinhas = _wrapText(codigoInfo, 32);
+        for (final linha in codigoLinhas) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: linha,
+          ));
+        }
+        
+        // Quantidade e valores
+        final qtdStr = item.quantidade.toStringAsFixed(2);
+        final unitStr = _formatCurrency(item.valorUnitario);
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '$qtdStr ${item.unidade} x $unitStr',
+        ));
+        
+        // Valor total do item
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'R\$ ${_formatCurrency(item.valorTotal)}',
+        ));
+        
+        // Espaço entre itens
+        if (i < data.itens.length - 1) {
+          items.add(const ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: '',
+          ));
+        }
+      }
+      
+      // Linha separadora antes dos totais
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '────────────────────────────────',
+      ));
+      
+      // ========== TOTAIS ==========
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: 'TOTAIS',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: 'Subtotal: ${_formatCurrency(data.valorTotalProdutos)}',
+      ));
+      
+      if (data.valorTotalDesconto > 0) {
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'Desconto: ${_formatCurrency(data.valorTotalDesconto)}',
+        ));
+      }
+      
+      if (data.valorTotalImpostos > 0) {
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'Impostos: ${_formatCurrency(data.valorTotalImpostos)}',
+        ));
+      }
+      
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: 'TOTAL: ${_formatCurrency(data.valorTotalNota)}',
+      ));
+      
+      // ========== FORMAS DE PAGAMENTO ==========
+      if (data.pagamentos.isNotEmpty) {
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'FORMA DE PAGAMENTO',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        
+        for (final pagamento in data.pagamentos) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: '${pagamento.formaPagamento}: ${_formatCurrency(pagamento.valor)}',
+          ));
+        }
+      }
+      
+      // ========== QR CODE ==========
+      if (data.qrCodeTexto != null && data.qrCodeTexto!.isNotEmpty) {
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText('Consulte pela Chave de Acesso em:', 32),
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        
+        // Gerar QR Code como imagem base64
+        try {
+          debugPrint('🔲 ========== INÍCIO PROCESSAMENTO QR CODE ==========');
+          debugPrint('🔲 QR Code texto recebido: ${data.qrCodeTexto!.length} caracteres');
+          debugPrint('🔲 QR Code texto (primeiros 100 chars): ${data.qrCodeTexto!.substring(0, data.qrCodeTexto!.length > 100 ? 100 : data.qrCodeTexto!.length)}...');
+          
+          final qrCodeImage = await _gerarQrCodeImagem(data.qrCodeTexto!);
+          
+          if (qrCodeImage != null && qrCodeImage.isNotEmpty) {
+            debugPrint('✅ QR Code base64 gerado com sucesso!');
+            debugPrint('🔲 Tamanho do base64: ${qrCodeImage.length} caracteres');
+            debugPrint('🔲 Criando ItemPrintModel com type: ItemPrintTypeEnum.image...');
+            
+            // Adicionar linha em branco antes do QR Code para espaçamento
+            items.add(const ItemPrintModel(
+              type: ItemPrintTypeEnum.text,
+              data: '',
+            ));
+            
+            // Criar ItemPrintModel com tipo image e base64
+            final qrCodeItem = ItemPrintModel(
+              type: ItemPrintTypeEnum.image,
+              data: qrCodeImage,
+            );
+            
+            debugPrint('🔲 ItemPrintModel criado, adicionando à lista de impressão...');
+            debugPrint('🔲 Tipo do item: ${qrCodeItem.type}');
+            debugPrint('🔲 Tamanho do data: ${qrCodeItem.data.length} caracteres');
+            debugPrint('🔲 Primeiros 50 chars do data: ${qrCodeItem.data.substring(0, qrCodeItem.data.length > 50 ? 50 : qrCodeItem.data.length)}...');
+            
+            items.add(qrCodeItem);
+            
+            // Adicionar linha em branco depois do QR Code para espaçamento
+            items.add(const ItemPrintModel(
+              type: ItemPrintTypeEnum.text,
+              data: '',
+            ));
+            
+            debugPrint('✅ QR Code ItemPrintModel adicionado à lista de impressão (centralizado)!');
+            debugPrint('🔲 Total de itens na lista: ${items.length}');
+            debugPrint('🔲 ========== FIM PROCESSAMENTO QR CODE ==========');
+          } else {
+            debugPrint('⚠️ QR Code base64 é null ou vazio - usando fallback texto');
+            // Fallback: imprime QR Code como texto
+            _adicionarQrCodeComoTexto(items, data.qrCodeTexto!);
+          }
+        } catch (e, stackTrace) {
+          debugPrint('❌ ========== ERRO NO PROCESSAMENTO QR CODE ==========');
+          debugPrint('❌ Erro: $e');
+          debugPrint('❌ Stack trace: $stackTrace');
+          debugPrint('❌ Usando fallback texto...');
+          // Fallback: imprime QR Code como texto
+          _adicionarQrCodeComoTexto(items, data.qrCodeTexto!);
+        }
+        
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: _centerText('NFC-e pode ser consultada em:', 32),
+        ));
+        
+        // URL de consulta
+        if (data.urlConsultaChave != null && data.urlConsultaChave!.isNotEmpty) {
+          final urlLinhas = _wrapText(data.urlConsultaChave!, 32);
+          for (final linha in urlLinhas) {
+            items.add(ItemPrintModel(
+              type: ItemPrintTypeEnum.text,
+              data: _centerText(linha, 32),
+            ));
+          }
+        }
+      }
+      
+      // ========== INFORMAÇÕES ADICIONAIS ==========
+      if (data.informacoesAdicionais != null && data.informacoesAdicionais!.isNotEmpty) {
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: 'INFORMAÇÕES ADICIONAIS',
+        ));
+        items.add(const ItemPrintModel(
+          type: ItemPrintTypeEnum.text,
+          data: '',
+        ));
+        
+        final infoLinhas = _wrapText(data.informacoesAdicionais!, 32);
+        for (final linha in infoLinhas) {
+          items.add(ItemPrintModel(
+            type: ItemPrintTypeEnum.text,
+            data: linha,
+          ));
+        }
+      }
+      
+      // ========== RODAPÉ ==========
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('Documento Auxiliar da Nota Fiscal de', 32),
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('Consumidor Eletrônica', 32),
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('Este documento não substitui a consulta', 32),
+      ));
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: _centerText('pela Chave de Acesso', 32),
+      ));
+      
+      // Linha final
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '════════════════════════════════',
+      ));
+      
+      // Espaços finais para cortar papel
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      items.add(const ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: '',
+      ));
+      
+      debugPrint('🖨️ ========== ENVIANDO PARA IMPRESSÃO ==========');
+      debugPrint('🖨️ Total de itens na lista: ${items.length}');
+      
+      // Verificar se há QR Code na lista
+      int qrCodeCount = 0;
+      for (var i = 0; i < items.length; i++) {
+        final item = items[i];
+        if (item.type == ItemPrintTypeEnum.image) {
+          qrCodeCount++;
+          debugPrint('🖨️ Item $i: TIPO=IMAGE, tamanho data=${item.data.length} chars');
+          debugPrint('🖨️ Item $i: Primeiros 50 chars=${item.data.substring(0, item.data.length > 50 ? 50 : item.data.length)}...');
+        }
+      }
+      
+      if (qrCodeCount > 0) {
+        debugPrint('✅ QR Code encontrado na lista! Total de imagens: $qrCodeCount');
+      } else {
+        debugPrint('⚠️ NENHUM QR Code encontrado na lista de impressão!');
+      }
+      
+      debugPrint('🖨️ Enviando ${items.length} itens para impressão NFC-e Stone SDK...');
+      
+      // Imprime usando SDK da Stone
+      final result = await StonePayments.print(items);
+      
+      debugPrint('🖨️ Resultado da impressão: $result');
+      debugPrint('🖨️ ===========================================');
+      
+      if (result != null && result.isNotEmpty) {
+        debugPrint('✅ Impressão NFC-e concluída: $result');
+        return PrintResult(
+          success: true,
+          printJobId: 'STONE-NFCE-${DateTime.now().millisecondsSinceEpoch}',
+        );
+      } else {
+        debugPrint('⚠️ Impressão NFC-e retornou resultado vazio');
+        return PrintResult(
+          success: true, // Considera sucesso mesmo sem retorno explícito
+          printJobId: 'STONE-NFCE-${DateTime.now().millisecondsSinceEpoch}',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao imprimir NFC-e Stone: $e');
+      return PrintResult(
+        success: false,
+        errorMessage: 'Erro ao imprimir NFC-e: ${e.toString()}',
+      );
+    }
+  }
+  
+  @override
   Future<bool> checkPrinterStatus() async {
     if (!_initialized) return false;
     
@@ -571,6 +1167,144 @@ class StoneThermalAdapter implements PrintProvider {
     }
     
     return lines;
+  }
+  
+  /// Formata CNPJ (14 dígitos) para formato XX.XXX.XXX/XXXX-XX
+  String _formatCNPJ(String cnpj) {
+    if (cnpj.length != 14) return cnpj;
+    return '${cnpj.substring(0, 2)}.${cnpj.substring(2, 5)}.${cnpj.substring(5, 8)}/${cnpj.substring(8, 12)}-${cnpj.substring(12, 14)}';
+  }
+  
+  /// Formata CPF (11 dígitos) para formato XXX.XXX.XXX-XX
+  String _formatCPF(String cpf) {
+    if (cpf.length != 11) return cpf;
+    return '${cpf.substring(0, 3)}.${cpf.substring(3, 6)}.${cpf.substring(6, 9)}-${cpf.substring(9, 11)}';
+  }
+  
+  /// Formata chave de acesso (44 dígitos) em grupos de 4
+  String _formatarChaveAcesso(String chave) {
+    if (chave.length != 44) return chave;
+    final grupos = <String>[];
+    for (int i = 0; i < chave.length; i += 4) {
+      final tamanho = (i + 4 <= chave.length) ? 4 : chave.length - i;
+      grupos.add(chave.substring(i, i + tamanho));
+    }
+    return grupos.join(' ');
+  }
+  
+  /// Gera QR Code como imagem base64 para impressão
+  /// Retorna null se houver erro
+  /// 
+  /// IMPORTANTE: O SDK da Stone espera base64 puro (sem prefixo data:image/...)
+  /// Tamanho recomendado para impressora térmica 57mm: 100-120px
+  Future<String?> _gerarQrCodeImagem(String qrCodeTexto) async {
+    try {
+      debugPrint('🔲 ========== INÍCIO GERAÇÃO QR CODE ==========');
+      debugPrint('🔲 Tamanho do texto QR Code: ${qrCodeTexto.length} caracteres');
+      debugPrint('🔲 QR Code texto (primeiros 100 chars): ${qrCodeTexto.substring(0, qrCodeTexto.length > 100 ? 100 : qrCodeTexto.length)}...');
+      
+      // Tamanho da imagem do QR Code (ajustado para impressora térmica 57mm)
+      // Impressoras térmicas 57mm têm largura útil de ~48mm (aproximadamente 180-200 pixels)
+      // Usar 200px para o QR Code e adicionar padding branco nas laterais para centralizar
+      // Largura total da imagem: 240px (200px QR Code + 20px padding de cada lado)
+      const qrSize = 200.0;
+      const paddingLateral = 20.0; // Padding nas laterais para centralizar
+      const paddingVertical = 10.0; // Padding vertical mínimo
+      const totalWidth = qrSize + (paddingLateral * 2); // 240px de largura
+      const totalHeight = qrSize + (paddingVertical * 2); // 220px de altura
+      
+      debugPrint('🔲 Criando QR Code painter com tamanho ${qrSize}x${qrSize}px (total: ${totalWidth}x${totalHeight}px)...');
+      
+      // Criar QR Code painter com correção de erro alta (H) para melhor legibilidade em impressão
+      final qrPainter = QrPainter(
+        data: qrCodeTexto,
+        version: QrVersions.auto,
+        errorCorrectionLevel: QrErrorCorrectLevel.H, // Alta correção de erro para impressão
+        color: const ui.Color(0xFF000000), // Preto
+        emptyColor: const ui.Color(0xFFFFFFFF), // Branco
+      );
+      
+      debugPrint('🔲 QR Code painter criado, criando canvas...');
+      
+      // Criar um PictureRecorder para capturar a pintura
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      
+      // Pintar fundo branco primeiro (importante para QR Code legível)
+      final backgroundPaint = Paint()..color = const ui.Color(0xFFFFFFFF);
+      canvas.drawRect(Rect.fromLTWH(0, 0, totalWidth, totalHeight), backgroundPaint);
+      
+      debugPrint('🔲 Fundo branco pintado, pintando QR Code centralizado...');
+      
+      // Pintar o QR Code centralizado no canvas
+      // Centralizar horizontalmente: padding lateral
+      // Centralizar verticalmente: padding vertical
+      canvas.save();
+      canvas.translate(paddingLateral, paddingVertical);
+      qrPainter.paint(canvas, Size(qrSize, qrSize));
+      canvas.restore();
+      
+      debugPrint('🔲 QR Code pintado no canvas, finalizando picture...');
+      
+      // Finalizar a pintura
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(totalWidth.toInt(), totalHeight.toInt());
+      
+      debugPrint('🔲 Imagem criada (${totalWidth.toInt()}x${totalHeight.toInt()}px), convertendo para PNG...');
+      
+      // Converter para PNG bytes (PNG é melhor para QR Code - mantém qualidade)
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        debugPrint('❌ Erro: byteData é null após conversão para PNG');
+        return null;
+      }
+      
+      debugPrint('🔲 PNG bytes obtidos: ${byteData.lengthInBytes} bytes');
+      
+      // Converter para base64
+      final pngBytes = byteData.buffer.asUint8List();
+      final base64String = base64Encode(pngBytes);
+      
+      debugPrint('✅ QR Code gerado como base64 com sucesso!');
+      debugPrint('🔲 Tamanho do base64: ${base64String.length} caracteres');
+      debugPrint('🔲 Primeiros 100 caracteres: ${base64String.substring(0, base64String.length > 100 ? 100 : base64String.length)}...');
+      debugPrint('🔲 Últimos 50 caracteres: ...${base64String.substring(base64String.length > 50 ? base64String.length - 50 : 0)}');
+      debugPrint('🔲 ========== FIM GERAÇÃO QR CODE ==========');
+      
+      // O SDK da Stone espera apenas o base64 puro (sem prefixo "data:image/png;base64,")
+      // Retorna apenas o base64 puro
+      return base64String;
+    } catch (e, stackTrace) {
+      debugPrint('❌ ========== ERRO NA GERAÇÃO QR CODE ==========');
+      debugPrint('❌ Erro: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
+      debugPrint('❌ ============================================');
+      return null;
+    }
+  }
+  
+  /// Adiciona QR Code como texto (fallback quando imagem falha)
+  void _adicionarQrCodeComoTexto(List<ItemPrintModel> items, String qrCodeTexto) {
+    debugPrint('📝 Adicionando QR Code como texto (fallback)...');
+    items.add(const ItemPrintModel(
+      type: ItemPrintTypeEnum.text,
+      data: '',
+    ));
+    items.add(const ItemPrintModel(
+      type: ItemPrintTypeEnum.text,
+      data: 'QR CODE (TEXTO):',
+    ));
+    
+    // Quebra o QR Code em linhas de 32 caracteres
+    final qrLinhas = _wrapText(qrCodeTexto, 32);
+    for (final linha in qrLinhas) {
+      items.add(ItemPrintModel(
+        type: ItemPrintTypeEnum.text,
+        data: linha,
+      ));
+    }
+    
+    debugPrint('✅ QR Code adicionado como texto');
   }
   
   /// Imprime recibo do cliente (após pagamento aprovado)

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'print_config.dart';
 import 'print_data.dart';
+import 'nfce_print_data.dart';
 import 'print_provider.dart';
 import '../../data/adapters/printing/print_provider_registry.dart';
 
@@ -92,13 +93,18 @@ class PrintService {
       case DocumentType.parcialVenda:
         return await provider.printComanda(data);
       case DocumentType.orcamento:
-      case DocumentType.nfce:
       case DocumentType.cupomFiscal:
       case DocumentType.recibo:
         // TODO: Implementar outros tipos de documento
         return PrintResult(
           success: false,
           errorMessage: 'Tipo de documento $documentType ainda não implementado',
+        );
+      case DocumentType.nfce:
+        // NFC-e requer NfcePrintData, não PrintData
+        return PrintResult(
+          success: false,
+          errorMessage: 'Use printNfce() diretamente com NfcePrintData',
         );
     }
   }
@@ -113,6 +119,52 @@ class PrintService {
   List<OutputStrategy> getAvailableOutputs(DocumentType documentType) {
     final docConfig = _config?.getConfigFor(documentType);
     return docConfig?.availableOutputs ?? [];
+  }
+  
+  /// Imprime uma NFC-e
+  Future<PrintResult> printNfce({
+    required NfcePrintData data,
+    String? providerKey,
+    OutputStrategy? outputStrategy,
+  }) async {
+    // Determina provider e estratégia de saída
+    final docConfig = _config?.getConfigFor(DocumentType.nfce);
+    if (docConfig == null) {
+      return PrintResult(
+        success: false,
+        errorMessage: 'Configuração não encontrada para NFC-e',
+      );
+    }
+    
+    final finalProviderKey = providerKey ?? docConfig.providerKey ?? _config?.defaultProvider;
+    if (finalProviderKey == null) {
+      return PrintResult(
+        success: false,
+        errorMessage: 'Provider não especificado',
+      );
+    }
+    
+    // Obtém provider
+    final provider = await getProvider(finalProviderKey);
+    if (provider == null) {
+      return PrintResult(
+        success: false,
+        errorMessage: 'Provider $finalProviderKey não disponível',
+      );
+    }
+    
+    // Inicializa se necessário
+    try {
+      await provider.initialize();
+    } catch (e) {
+      return PrintResult(
+        success: false,
+        errorMessage: 'Erro ao inicializar provider: ${e.toString()}',
+      );
+    }
+    
+    // Chama método printNfce do provider
+    return await provider.printNfce(data);
   }
 }
 

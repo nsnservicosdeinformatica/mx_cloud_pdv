@@ -49,7 +49,7 @@ class ApiResponse<T> {
     return ApiResponse<T>(
       success: false,
       message: message,
-      data: null as T,
+      data: null, // ✅ Corrigido: null é válido para T? (nullable)
       errors: errors,
       timestamp: DateTime.now().toIso8601String(),
     );

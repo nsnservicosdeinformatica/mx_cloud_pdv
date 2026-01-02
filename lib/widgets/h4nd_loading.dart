@@ -14,7 +14,7 @@ class H4ndLoading extends StatefulWidget {
 
   const H4ndLoading({
     Key? key,
-    this.size = 80.0,
+    this.size = 120.0, // ✅ Aumentado para 120.0 para dar mais espaço ao texto
     this.blueColor,
     this.greenColor,
     this.showSolutions = false,
@@ -109,7 +109,7 @@ class _H4ndLoadingState extends State<H4ndLoading>
                   ),
                   // Texto H4ND
                   Padding(
-                    padding: EdgeInsets.all(widget.size * 0.15),
+                    padding: EdgeInsets.all(widget.size * 0.12), // ✅ Reduzido de 0.15 para 0.12 para dar mais espaço ao texto
                     child: ClipRect(
                       child: _buildH4ndText(blue, green),
                     ),
@@ -197,7 +197,7 @@ class _H4ndLoadingState extends State<H4ndLoading>
             child: Text(
               letter,
               style: TextStyle(
-                fontSize: widget.size * 0.28,
+                fontSize: widget.size * 0.24, // ✅ Reduzido de 0.28 para 0.24 para caber melhor
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0,
                 color: color,
@@ -379,7 +379,7 @@ class H4ndLoadingOverlay extends StatelessWidget {
 
   const H4ndLoadingOverlay({
     Key? key,
-    this.size = 80.0,
+    this.size = 120.0, // ✅ Aumentado para 120.0 para consistência
     this.message,
   }) : super(key: key);
 

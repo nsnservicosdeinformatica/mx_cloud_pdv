@@ -105,9 +105,21 @@ class PedidoLocal {
   /// Converte PedidoLocal para CreatePedidoDto (Map) para envio à API
   /// Usado para vendas balcão que são enviadas diretamente para API
   Map<String, dynamic> toCreateDto() {
+    // ✅ Determina tipoContexto baseado em mesaId/comandaId
+    int tipoContexto;
+    if (mesaId != null) {
+      tipoContexto = 2; // TipoContextoPedido.Mesa
+    } else if (comandaId != null) {
+      tipoContexto = 3; // TipoContextoPedido.Comanda
+    } else {
+      tipoContexto = 1; // TipoContextoPedido.Direto (venda balcão)
+    }
+    
     final dto = {
       'tipo': 2, // TipoPedido.Venda
-      'tipoContexto': 1, // TipoContextoPedido.Direto (venda balcão não tem mesa/comanda)
+      'tipoContexto': tipoContexto,
+      'mesaId': mesaId,
+      'comandaId': comandaId,
       'clienteNome': 'Consumidor Final',
       'observacoes': observacoesGeral,
       'itens': itens.map((item) {

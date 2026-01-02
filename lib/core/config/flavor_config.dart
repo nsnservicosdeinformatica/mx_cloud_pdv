@@ -1,11 +1,22 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 /// Detecta o flavor atual do build
 class FlavorConfig {
   static String? _cachedFlavor;
+  static PackageInfo? _packageInfo;
+  
+  /// Inicializa o PackageInfo (deve ser chamado no início do app)
+  static Future<void> initialize() async {
+    if (_packageInfo == null) {
+      _packageInfo = await PackageInfo.fromPlatform();
+    }
+  }
   
   /// Retorna o flavor atual (mobile, stoneP2, etc.)
+  /// ATENÇÃO: Este método pode retornar 'mobile' como padrão se não conseguir detectar
+  /// Use detectFlavorAsync() para detecção mais confiável
   static String get currentFlavor {
     if (_cachedFlavor != null) return _cachedFlavor!;
     
@@ -16,36 +27,35 @@ class FlavorConfig {
       return _cachedFlavor!;
     }
     
-    // Fallback: tenta detectar pelo arquivo de config disponível
-    _cachedFlavor = _detectFlavorFromAssets();
-    
-    return _cachedFlavor!;
-  }
-  
-  /// Detecta flavor tentando carregar arquivos de config
-  static String _detectFlavorFromAssets() {
-    // Tenta carregar configs em ordem de prioridade
-    final flavors = ['stoneP2', 'mobile'];
-    
-    for (final flavor in flavors) {
-      try {
-        // Tenta carregar um arquivo de config para verificar se existe
-        // Como não podemos fazer isso síncrono, assumimos mobile como padrão
-        break;
-      } catch (e) {
-        continue;
+    // Tenta detectar pelo applicationId se já foi inicializado
+    if (_packageInfo != null) {
+      final flavor = _detectFlavorFromApplicationId(_packageInfo!.packageName);
+      if (flavor != null) {
+        _cachedFlavor = flavor;
+        return _cachedFlavor!;
       }
     }
     
-    // Padrão: mobile
-    return 'mobile';
+    // Fallback: mobile (será atualizado quando detectFlavorAsync() for chamado)
+    _cachedFlavor = 'mobile';
+    return _cachedFlavor!;
+  }
+  
+  /// Detecta flavor pelo applicationId
+  static String? _detectFlavorFromApplicationId(String applicationId) {
+    if (applicationId.contains('.stone.p2')) {
+      return 'stoneP2';
+    } else if (applicationId.contains('.mobile')) {
+      return 'mobile';
+    }
+    return null;
   }
   
   /// Carrega flavor de forma assíncrona (mais confiável)
   static Future<String> detectFlavorAsync() async {
     if (_cachedFlavor != null) return _cachedFlavor!;
     
-    // Tenta ler do ambiente de build (--dart-define=FLAVOR=stoneP2)
+    // 1. Tenta ler do ambiente de build (--dart-define=FLAVOR=stoneP2)
     const flavorEnv = String.fromEnvironment('FLAVOR');
     if (flavorEnv.isNotEmpty) {
       _cachedFlavor = flavorEnv;
@@ -53,7 +63,18 @@ class FlavorConfig {
       return _cachedFlavor!;
     }
     
-    // Fallback: tenta detectar pelo arquivo de config disponível
+    // 2. Detecta pelo applicationId (mais confiável)
+    await initialize();
+    if (_packageInfo != null) {
+      final flavor = _detectFlavorFromApplicationId(_packageInfo!.packageName);
+      if (flavor != null) {
+        _cachedFlavor = flavor;
+        debugPrint('✅ Flavor detectado via applicationId (${_packageInfo!.packageName}): $flavor');
+        return _cachedFlavor!;
+      }
+    }
+    
+    // 3. Fallback: tenta detectar pelo arquivo de config disponível
     // Prioriza stoneP2 primeiro (máquinas POS são mais específicas)
     final flavors = ['stoneP2', 'mobile'];
     
@@ -62,7 +83,7 @@ class FlavorConfig {
         await rootBundle.loadString('assets/config/payment_$flavor.json');
         _cachedFlavor = flavor;
         debugPrint('✅ Flavor detectado via assets: $flavor');
-        return flavor;
+        return _cachedFlavor!;
       } catch (e) {
         continue;
       }

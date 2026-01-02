@@ -39,7 +39,18 @@ class SavedAppConfig implements EnvConfig {
   }
 
   @override
-  String get s3BaseUrl => _config.s3BaseUrl;
+  String get s3BaseUrl {
+    // ✅ Sempre usa a configuração do frontend (debug = hml, release = prod)
+    // Ignora o s3BaseUrl que vem do backend para garantir consistência
+    const bool isProd = bool.fromEnvironment('dart.vm.product', defaultValue: false);
+    const bool forceProd = bool.fromEnvironment('FORCE_PROD', defaultValue: false);
+    
+    if (isProd || forceProd) {
+      return 'https://h4nd-client.s3.us-east-1.amazonaws.com';
+    } else {
+      return 'https://h4nd-client-hml.s3.us-east-1.amazonaws.com';
+    }
+  }
 
   @override
   bool get isProduction => _config.environment == 'Production';

@@ -20,7 +20,7 @@ import '../pedidos/pedidos_sync_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart' show TipoVisualizacao;
 import '../pedidos/restaurante/novo_pedido_restaurante_screen.dart';
-import '../pedidos/restaurante/dialogs/selecionar_mesa_comanda_dialog.dart';
+import '../dialogs/selecionar_mesa_comanda_dialog.dart';
 import '../patio/patio_screen.dart';
 import '../pedidos/pedidos_screen.dart';
 import '../profile/profile_screen.dart';

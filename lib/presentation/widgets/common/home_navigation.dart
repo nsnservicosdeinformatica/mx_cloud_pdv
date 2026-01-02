@@ -181,6 +181,21 @@ class _HomeNavigationState extends State<HomeNavigation> {
     }
   }
 
+  /// Retorna a cor específica para cada item de navegação
+  Color _getItemColor(NavigationItem item) {
+    // Cores vibrantes para cada botão
+    final colorMap = {
+      'Home': const Color(0xFF6366F1), // Indigo
+      'Pedidos': const Color(0xFF10B981), // Emerald
+      'Mesas e Comandas': const Color(0xFFFF6B6B), // Coral
+      'Balcão': const Color(0xFFF59E0B), // Amber
+      'Pátio': const Color(0xFF4DABF7), // Azul brilhante
+      'Perfil': const Color(0xFF8B5CF6), // Purple
+    };
+
+    return colorMap[item.label] ?? Theme.of(context).colorScheme.primary;
+  }
+
   /// Constrói o conteúdo da barra de navegação inferior
   Widget _buildBottomNavigationContent(
     BuildContext context,
@@ -197,6 +212,7 @@ class _HomeNavigationState extends State<HomeNavigation> {
           final index = entry.key;
           final item = entry.value;
           final isActive = _currentIndex == index;
+          final itemColor = _getItemColor(item);
 
           return Expanded(
             child: Material(
@@ -217,24 +233,22 @@ class _HomeNavigationState extends State<HomeNavigation> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
+                    // ✅ Botão inteiro colorido
                     color: isActive
-                        ? Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withOpacity(0.08)
-                        : null,
+                        ? itemColor // Cor completa quando ativo
+                        : itemColor.withOpacity(0.15), // Cor suave quando inativo
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Ícone simples
+                      // Ícone branco quando ativo, cor do botão quando inativo
                       Icon(
                         item.icon,
                         color: isActive
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey.shade500,
+                            ? Colors.white // Ícone branco quando botão está colorido
+                            : itemColor, // Ícone colorido quando botão está suave
                         size: isActive ? 26 : 24,
                       ),
                       const SizedBox(height: 4),
@@ -243,8 +257,8 @@ class _HomeNavigationState extends State<HomeNavigation> {
                         style: TextStyle(
                           fontSize: isActive ? 12 : 11,
                           color: isActive
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey.shade600,
+                              ? Colors.white // Texto branco quando botão está colorido
+                              : itemColor, // Texto colorido quando botão está suave
                           fontWeight: isActive
                               ? FontWeight.w600
                               : FontWeight.w500,

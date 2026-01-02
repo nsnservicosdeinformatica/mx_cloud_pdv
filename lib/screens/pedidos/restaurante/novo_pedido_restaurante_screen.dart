@@ -12,7 +12,8 @@ import '../../../data/models/modules/restaurante/comanda_list_item.dart';
 import '../../../core/widgets/loading_helper.dart';
 import '../../../core/widgets/error_helper.dart';
 import '../../../data/models/core/tipo_venda.dart';
-import '../../../data/models/core/pedido_dto.dart';
+import '../../../core/events/app_event_bus.dart';
+import 'package:flutter/foundation.dart';
 import 'components/categoria_navigation_tree.dart';
 import 'components/pedido_resumo_panel.dart';
 
@@ -845,19 +846,15 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       return;
     }
 
-    // Se for venda balcão, envia para API e salva vendaId pendente
-    // A BalcaoScreen detecta a venda pendente e abre o pagamento
-    if (widget.tipoVenda == TipoVenda.balcao) {
-      await _finalizarPedidoBalcao(context);
-      return;
-    }
-
     // Mostra loading
     LoadingHelper.show(context);
 
     try {
-      // Finaliza o pedido e salva na base local
-      final pedidoIdSalvo = await pedidoProvider.finalizarPedido();
+      // ✅ Usa método comum do PedidoProvider para finalizar
+      // Para balcão: permitirHive=false (não salva no Hive se falhar)
+      // Para mesa/comanda: permitirHive=true (salva no Hive se falhar)
+      final isBalcao = widget.tipoVenda == TipoVenda.balcao;
+      final result = await pedidoProvider.finalizarPedido(permitirHive: !isBalcao);
 
       if (!mounted) {
         LoadingHelper.hide(context);
@@ -867,112 +864,73 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       // Fecha o loading
       LoadingHelper.hide(context);
 
-      if (pedidoIdSalvo != null) {
-        // A sincronização é automática via listener do Hive
-        // Não precisa chamar manualmente
-        
-        // Mostra mensagem de sucesso
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Pedido finalizado! Sincronizando...',
-                      style: GoogleFonts.plusJakartaSans(),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-
-        // Volta para a tela anterior após um breve delay
-        // Usa rootNavigator: true porque a tela foi aberta com rootNavigator: true
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-          Navigator.of(context, rootNavigator: true).pop(true);
-        }
-      } else {
-        ErrorHelper.show(context, 'Erro ao finalizar pedido. Tente novamente.');
-      }
-    } catch (e) {
-      LoadingHelper.hide(context);
-      
-      if (!mounted) return;
-      ErrorHelper.show(context, 'Erro ao finalizar pedido: $e');
-    }
-  }
-
-  /// Finaliza pedido balcão: envia para API e salva vendaId pendente
-  /// A BalcaoScreen detecta a venda pendente e abre o pagamento automaticamente
-  /// Esta tela apenas cria o pedido, não gerencia o pagamento
-  Future<void> _finalizarPedidoBalcao(BuildContext context) async {
-    final pedidoProvider = Provider.of<PedidoProvider>(context, listen: false);
-    final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
-    final pedidoService = servicesProvider.pedidoService;
-
-    // Mostra loading
-    LoadingHelper.show(context);
-
-    try {
-      // Obtém pedido atual
-      final pedidoLocal = pedidoProvider.pedidoAtual;
-      if (pedidoLocal == null || pedidoLocal.itens.isEmpty) {
-        LoadingHelper.hide(context);
-        ErrorHelper.show(context, 'Adicione pelo menos um item ao pedido');
-        return;
-      }
-
-      // Converte PedidoLocal para DTO usando método do próprio modelo
-      final dto = pedidoLocal.toCreateDto();
-
-      // Envia para API
-      final response = await pedidoService.createPedido(dto);
-
-      if (!mounted) {
-        LoadingHelper.hide(context);
-        return;
-      }
-      
-      LoadingHelper.hide(context);
-
-      if (!response.success || response.data == null) {
-        final mensagemErro = response.message.isNotEmpty 
-            ? response.message 
-            : 'Erro ao criar pedido. Tente novamente.';
+      if (!result.sucesso) {
+        // Mostra erro
+        final mensagemErro = result.erro ?? 'Erro ao finalizar pedido. Tente novamente.';
         ErrorHelper.show(context, mensagemErro);
         return;
       }
 
-      // Parsear resposta para PedidoDto
-      final pedidoDto = PedidoDto.fromJson(response.data!);
+      // Se for balcão, salva vendaId pendente e abre pagamento
+      if (isBalcao) {
+        if (result.vendaId == null) {
+          ErrorHelper.show(context, 'Erro ao criar pedido. Tente novamente.');
+          return;
+        }
 
-      if (pedidoDto.vendaId == null) {
-        ErrorHelper.show(context, 'Erro ao criar pedido. Tente novamente.');
+        // Salva vendaId pendente usando provider
+        // A BalcaoScreen detecta isso e abre o pagamento automaticamente
+        final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);
+        await vendaBalcaoProvider.salvarVendaPendente(result.vendaId!);
+        debugPrint('✅ VendaId salvo como pendente: ${result.vendaId}');
+
+        // Fecha tela de pedido
+        // A BalcaoScreen vai detectar a venda pendente e abrir o pagamento
+        if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
         return;
       }
 
-      // Limpa o pedido atual no provider (já foi enviado)
-      pedidoProvider.limparPedido();
+      // Para mesa/comanda: mostra mensagem de sucesso e fecha
+      // A sincronização é automática via listener do Hive (se foi salvo no Hive)
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    result.foiEnviadoDireto 
+                        ? 'Pedido enviado com sucesso!'
+                        : 'Pedido finalizado! Sincronizando...',
+                    style: GoogleFonts.plusJakartaSans(),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
 
-      // Salva vendaId pendente usando provider
-      // A BalcaoScreen detecta isso e abre o pagamento automaticamente
-      final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);
-      await vendaBalcaoProvider.salvarVendaPendente(pedidoDto.vendaId!);
-      debugPrint('✅ VendaId salvo como pendente: ${pedidoDto.vendaId}');
+      // Dispara evento para atualizar mesas/comandas (só se tiver pedidoId)
+      if (result.pedidoId != null) {
+        AppEventBus.instance.dispararPedidoCriado(
+          pedidoId: result.pedidoId!,
+          mesaId: widget.mesaId ?? '',
+          comandaId: widget.comandaId ?? '',
+        );
+      }
 
-      // Fecha tela de pedido
-      // A BalcaoScreen vai detectar a venda pendente e abrir o pagamento
+      // Volta para a tela anterior após um breve delay
+      await Future.delayed(const Duration(milliseconds: 500));
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-        Navigator.of(context, rootNavigator: true).pop();
+        Navigator.of(context, rootNavigator: true).pop(true);
       }
     } catch (e) {
       LoadingHelper.hide(context);
@@ -981,6 +939,8 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       ErrorHelper.show(context, 'Erro ao finalizar pedido: $e');
     }
   }
+
+  // ✅ Método _finalizarPedidoBalcao removido - agora usa finalizarPedido() comum com permitirHive=false
 
   void _mostrarResumoPedidoMobile(BuildContext context) {
     // Salva o contexto da tela principal antes de abrir o bottom sheet

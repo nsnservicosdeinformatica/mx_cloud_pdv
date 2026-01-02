@@ -5,34 +5,22 @@ import 'providers/pdf_printer_adapter.dart';
 import '../../../../core/printing/print_config.dart';
 import '../../../../core/config/flavor_config.dart';
 
-// IMPORTANTE: NÃO importamos stone_thermal_adapter.dart aqui para evitar incluir SDK Stone no flavor mobile
-// O adapter Stone só será importado dinamicamente quando necessário via factory
+// Importa os loaders - no flavor mobile, as dependências nativas serão excluídas pelo Gradle
+// O código Dart será compilado, mas as classes nativas não estarão disponíveis
+import 'providers/stone_thermal_adapter_loader.dart' as stone_loader;
 
 /// Cria o adapter Stone Thermal apenas quando o flavor for stoneP2
-/// No flavor mobile, lança exceção sem tentar importar
+/// No flavor mobile, lança exceção sem tentar criar
 PrintProvider _createStoneThermalAdapter(Map<String, dynamic>? settings) {
-  // Só importa se for flavor stoneP2
+  // Só cria se for flavor stoneP2
   if (!FlavorConfig.isStoneP2) {
     throw Exception('Stone Thermal Adapter não disponível no flavor mobile');
   }
   
-  // Importação condicional usando o loader
-  // No flavor mobile, a função padrão createStoneThermalAdapterLoader() será usada
-  // No flavor stoneP2, esta função será substituída pelo import do loader
-  final loader = createStoneThermalAdapterLoader();
+  // Usa o loader para criar o adapter
+  // No flavor mobile, isso nunca será chamado devido à verificação acima
+  final loader = stone_loader.createStoneThermalAdapterLoader();
   return loader(settings);
-}
-
-/// Factory function para criar o loader do adapter Stone Thermal
-/// Esta função será implementada diferentemente para cada flavor
-/// No flavor mobile, retorna uma função que lança exceção
-/// No flavor stoneP2, retorna uma função que cria o adapter real
-PrintProvider Function(Map<String, dynamic>?) createStoneThermalAdapterLoader() {
-  // No flavor mobile, retorna uma função que lança exceção
-  // No flavor stoneP2, esta função será substituída por uma que importa o adapter real
-  return (settings) {
-    throw Exception('Stone Thermal Adapter não disponível neste flavor');
-  };
 }
 
 /// Registry para gerenciar providers de impressão

@@ -8,6 +8,7 @@ import '../../data/services/core/produto_service.dart';
 import '../../data/services/core/pedido_service.dart';
 import '../../data/services/core/exibicao_produto_service.dart';
 import '../../data/services/core/venda_service.dart';
+import '../../data/services/core/nota_fiscal_service.dart';
 import '../../data/services/sync/sync_service.dart';
 import '../../data/services/sync/auto_sync_manager.dart';
 import '../../data/repositories/produto_local_repository.dart';
@@ -29,6 +30,7 @@ class ServicesProvider extends ChangeNotifier {
   late final PedidoService _pedidoService;
   late final ExibicaoProdutoService _exibicaoProdutoService;
   late final VendaService _vendaService;
+  late final NotaFiscalService _notaFiscalService;
 
   /// Serviço de autenticação
   AuthService get authService => _authService;
@@ -53,6 +55,9 @@ class ServicesProvider extends ChangeNotifier {
   
   /// Serviço de vendas
   VendaService get vendaService => _vendaService;
+  
+  /// Serviço de notas fiscais
+  NotaFiscalService get notaFiscalService => _notaFiscalService;
 
   // Repositories locais
   late final ProdutoLocalRepository _produtoLocalRepo;
@@ -95,6 +100,7 @@ class ServicesProvider extends ChangeNotifier {
     _pedidoService = PedidoService(apiClient: _authService.apiClient);
     _exibicaoProdutoService = ExibicaoProdutoService(apiClient: _authService.apiClient);
     _vendaService = VendaService(apiClient: _authService.apiClient);
+    _notaFiscalService = NotaFiscalService(_authService.apiClient);
     
     // Criar serviços de sincronização
     _syncService = SyncService(

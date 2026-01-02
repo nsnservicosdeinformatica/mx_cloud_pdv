@@ -4,39 +4,22 @@ import 'providers/cash_payment_adapter.dart';
 import '../../../../core/payment/payment_config.dart';
 import '../../../../core/config/flavor_config.dart';
 
-// IMPORTANTE: NÃO importamos stone_pos_adapter.dart aqui para evitar incluir SDK Stone no flavor mobile
-// O adapter Stone só será importado dinamicamente quando necessário via factory
+// Importa os loaders - no flavor mobile, as dependências nativas serão excluídas pelo Gradle
+// O código Dart será compilado, mas as classes nativas não estarão disponíveis
+import 'providers/stone_pos_adapter_loader.dart' as stone_loader;
 
 /// Cria o adapter Stone POS apenas quando o flavor for stoneP2
-/// No flavor mobile, retorna null sem tentar importar
+/// No flavor mobile, lança exceção sem tentar criar
 PaymentProvider _createStonePosAdapter(Map<String, dynamic>? settings) {
-  // Só importa se for flavor stoneP2
+  // Só cria se for flavor stoneP2
   if (!FlavorConfig.isStoneP2) {
     throw Exception('Stone POS Adapter não disponível no flavor mobile');
   }
   
-  // Importação condicional usando o loader
-  // No flavor mobile, a função padrão createStonePosAdapterLoader() será usada
-  // No flavor stoneP2, esta função será substituída pelo import do loader
-  // IMPORTANTE: Esta função só será chamada quando FlavorConfig.isStoneP2 for true
-  // No flavor mobile, este código nunca será executado
-  final loader = createStonePosAdapterLoader();
+  // Usa o loader para criar o adapter
+  // No flavor mobile, isso nunca será chamado devido à verificação acima
+  final loader = stone_loader.createStonePosAdapterLoader();
   return loader(settings);
-}
-
-/// Factory function para criar o loader do adapter Stone
-/// Esta função será implementada diferentemente para cada flavor
-/// No flavor mobile, retorna uma função que lança exceção
-/// No flavor stoneP2, retorna uma função que cria o adapter real
-/// 
-/// IMPORTANTE: Esta função deve ser sobrescrita no arquivo stone_pos_adapter_loader.dart
-/// apenas quando o flavor for stoneP2. No flavor mobile, esta implementação padrão será usada.
-PaymentProvider Function(Map<String, dynamic>?) createStonePosAdapterLoader() {
-  // No flavor mobile, retorna uma função que lança exceção
-  // No flavor stoneP2, esta função será substituída por uma que importa o adapter real
-  return (settings) {
-    throw Exception('Stone POS Adapter não disponível neste flavor');
-  };
 }
 
 /// Registry para gerenciar providers de pagamento

@@ -1,4 +1,5 @@
 import '../../../../core/payment/payment_provider.dart';
+import '../../../../core/payment/payment_ui_notifier.dart'; // 🆕 Import do PaymentUINotifier
 
 /// Provider de pagamento em dinheiro (não precisa de SDK)
 class CashPaymentAdapter implements PaymentProvider {
@@ -10,6 +11,15 @@ class CashPaymentAdapter implements PaymentProvider {
   
   @override
   bool get isAvailable => true; // Sempre disponível
+  
+  /// Cash não requer interação do usuário durante processamento
+  /// 
+  /// **Por que false?**
+  /// - Pagamento em dinheiro é processado instantaneamente
+  /// - Não há SDK externo aguardando interação
+  /// - Validação é apenas matemática (valor recebido >= valor necessário)
+  @override
+  bool get requiresUserInteraction => false;
   
   @override
   Future<void> initialize() async {
@@ -26,6 +36,7 @@ class CashPaymentAdapter implements PaymentProvider {
     required double amount,
     required String vendaId,
     Map<String, dynamic>? additionalData,
+    PaymentUINotifier? uiNotifier, // 🆕 Parâmetro opcional (não usado para cash)
   }) async {
     // Para dinheiro, valida apenas se valor recebido é suficiente
     final valorRecebido = additionalData?['valorRecebido'] as double?;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import 'package:provider/provider.dart';
 import '../../presentation/providers/venda_balcao_provider.dart';
+import '../../presentation/providers/payment_flow_provider.dart'; // 🆕 Import do PaymentFlowProvider
 import '../../data/models/core/vendas/venda_dto.dart';
 import '../../data/models/core/produto_agrupado.dart';
 import '../../data/models/core/tipo_venda.dart';
@@ -71,11 +72,22 @@ class BalcaoPaymentHelper {
           // Usuário escolheu cancelar a venda
           if (context.mounted) {
             final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);
+            final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+            
+            // 🆕 Cancela venda pendente no PaymentFlowProvider
+            paymentFlowProvider.cancelPendingSale();
+            
             await vendaBalcaoProvider.limparVendaPendente();
           }
           vendaFinalizada = true; // Sai do loop
         } else {
           // Usuário escolheu continuar com o pagamento
+          // 🆕 Prepara PaymentFlowProvider para venda pendente
+          if (context.mounted) {
+            final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+            paymentFlowProvider.prepareForPendingSale();
+          }
+          
           // Mostra loading durante a busca da venda atualizada
           LoadingHelper.show(context);
           
@@ -220,6 +232,11 @@ class _BalcaoScreenState extends State<BalcaoScreen> {
   Future<void> _tratarErroBuscaVenda() async {
     if (!mounted) return;
     final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);
+    final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+    
+    // 🆕 Cancela venda pendente no PaymentFlowProvider
+    paymentFlowProvider.cancelPendingSale();
+    
     await vendaBalcaoProvider.limparVendaPendente();
     _resetarParaIdle();
   }
@@ -331,6 +348,12 @@ class _BalcaoScreenState extends State<BalcaoScreen> {
       // Vamos usar lista vazia - a tela de pagamento vai calcular baseado na venda
       // TODO: Melhorar construção de produtosAgrupados buscando pedido da venda
       List<ProdutoAgrupado> produtosAgrupados = [];
+
+      // 🆕 Prepara PaymentFlowProvider para venda pendente
+      if (mounted) {
+        final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+        paymentFlowProvider.prepareForPendingSale();
+      }
 
       // Atualiza estado para indicar que está abrindo pagamento
       _atualizarLoadingState(_BalcaoLoadingState.abrindoPagamento);

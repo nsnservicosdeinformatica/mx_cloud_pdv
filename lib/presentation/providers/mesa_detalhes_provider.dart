@@ -137,6 +137,11 @@ class MesaDetalhesProvider extends ChangeNotifier {
   /// comandaId = produtos da comanda específica
   /// "_SEM_COMANDA" = apenas produtos sem comanda
   List<ProdutoAgrupado> getProdutosParaAcao() {
+    // Se entidade é comanda (não mesa), retorna produtos agrupados diretamente
+    if (entidade.tipo == TipoEntidade.comanda) {
+      return _produtosAgrupados;
+    }
+    
     // Se aba selecionada é null, retorna TODOS os produtos (venda integral)
     if (_abaSelecionada == null) {
       return _getTodosProdutosMesa();
@@ -192,6 +197,11 @@ class MesaDetalhesProvider extends ChangeNotifier {
   /// comandaId = venda da comanda específica
   /// "_SEM_COMANDA" = venda sem comanda
   VendaDto? getVendaParaAcao() {
+    // Se entidade é comanda (não mesa), retorna venda atual diretamente
+    if (entidade.tipo == TipoEntidade.comanda) {
+      return _vendaAtual;
+    }
+    
     // Se aba selecionada é null ("Mesa" - venda integral), retorna venda atual da mesa
     if (_abaSelecionada == null) {
       return _vendaAtual;

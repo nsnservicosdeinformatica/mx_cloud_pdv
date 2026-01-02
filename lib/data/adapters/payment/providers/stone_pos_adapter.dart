@@ -1,4 +1,5 @@
 import '../../../../core/payment/payment_provider.dart';
+import '../../../../core/payment/payment_ui_notifier.dart'; // 🆕 Import do sistema de notificação
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -37,6 +38,15 @@ class StonePOSAdapter implements PaymentProvider {
       return false;
     }
   }
+  
+  /// Stone POS requer interação do usuário (inserir/passar cartão)
+  /// 
+  /// **Por que true?**
+  /// - Usuário precisa inserir ou aproximar cartão na máquina
+  /// - SDK aguarda interação do usuário durante processamento
+  /// - UI deve mostrar dialog "Aguardando cartão" durante esse tempo
+  @override
+  bool get requiresUserInteraction => true;
   
   @override
   Future<void> initialize() async {
@@ -113,6 +123,7 @@ class StonePOSAdapter implements PaymentProvider {
     required double amount,
     required String vendaId,
     Map<String, dynamic>? additionalData,
+    PaymentUINotifier? uiNotifier, // 🆕 Novo parâmetro para notificar UI
   }) async {
     if (!_initialized) {
       await initialize();
@@ -167,9 +178,17 @@ class StonePOSAdapter implements PaymentProvider {
       // Limpa última mensagem antes de iniciar nova transação
       _lastMessage = null;
       
+      // 🆕 NOTIFICA UI: Mostrar dialog "Aguardando cartão"
+      // Isso avisa a UI que o SDK está aguardando o usuário inserir/passar o cartão
+      uiNotifier?.notify(PaymentUINotification.showWaitingCard(
+        message: 'Aguardando cartão na máquina...\nMantenha o cartão próximo ao terminal.',
+      ));
+      debugPrint('📢 UI notificada: Mostrar dialog aguardando cartão');
+      
       // Processa transação usando SDK Stone
       // Nota: Para pagamento por aproximação (NFC), o SDK automaticamente detecta
       // quando o cartão é aproximado. O usuário deve manter o cartão próximo ao terminal.
+      // ⚠️ IMPORTANTE: Esta chamada BLOQUEIA até o cartão ser processado
       debugPrint('═══════════════════════════════════════════════════════════');
       debugPrint('💳 INICIANDO TRANSAÇÃO STONE');
       debugPrint('═══════════════════════════════════════════════════════════');
@@ -191,6 +210,11 @@ class StonePOSAdapter implements PaymentProvider {
           debugPrint('📱 QR Code PIX recebido: ${qrCodeBase64.length} caracteres');
         },
       );
+      
+      // 🆕 NOTIFICA UI: Esconder dialog "Aguardando cartão"
+      // Transação foi processada (sucesso ou falha), não precisa mais do dialog
+      uiNotifier?.notify(PaymentUINotification.hideWaitingCard());
+      debugPrint('📢 UI notificada: Esconder dialog aguardando cartão');
       
       if (transaction == null) {
         debugPrint('❌ Transação retornou null');
@@ -347,6 +371,11 @@ class StonePOSAdapter implements PaymentProvider {
         );
       }
     } catch (e) {
+      // 🆕 NOTIFICA UI: Esconder dialog "Aguardando cartão" em caso de erro
+      // Importante: sempre esconder o dialog, mesmo em caso de erro
+      uiNotifier?.notify(PaymentUINotification.hideWaitingCard());
+      debugPrint('📢 UI notificada: Esconder dialog aguardando cartão (erro)');
+      
       // Pausa listener em caso de erro (seguindo padrão do exemplo Stone)
       _messageSubscription?.pause();
       

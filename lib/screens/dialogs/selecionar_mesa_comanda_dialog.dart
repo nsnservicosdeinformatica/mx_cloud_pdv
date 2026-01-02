@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
-import '../../../../core/adaptive_layout/adaptive_layout.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/app_dialog.dart';
-import '../../../../core/widgets/teclado_numerico_dialog.dart';
-import '../../../../presentation/providers/services_provider.dart';
-import '../../../../data/services/modules/restaurante/mesa_service.dart';
-import '../../../../data/services/modules/restaurante/comanda_service.dart';
-import '../../../../data/services/core/venda_service.dart';
-import '../../../../data/models/modules/restaurante/mesa_list_item.dart';
-import '../../../../data/models/modules/restaurante/comanda_list_item.dart';
-import '../../../../data/models/modules/restaurante/mesa_filter.dart';
-import '../../../../data/models/modules/restaurante/comanda_filter.dart';
-import '../../../../data/models/modules/restaurante/configuracao_restaurante_dto.dart';
+import '../../../core/adaptive_layout/adaptive_layout.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/teclado_numerico_dialog.dart';
+import '../../../presentation/providers/services_provider.dart';
+import '../../../data/services/modules/restaurante/mesa_service.dart';
+import '../../../data/services/modules/restaurante/comanda_service.dart';
+import '../../../data/services/core/venda_service.dart';
+import '../../../data/models/modules/restaurante/mesa_list_item.dart';
+import '../../../data/models/modules/restaurante/comanda_list_item.dart';
+import '../../../data/models/modules/restaurante/mesa_filter.dart';
+import '../../../data/models/modules/restaurante/comanda_filter.dart';
+import '../../../data/models/modules/restaurante/configuracao_restaurante_dto.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Resultado da seleção de mesa e comanda
@@ -35,12 +35,16 @@ class SelecionarMesaComandaDialog extends StatefulWidget {
   final String? mesaIdPreSelecionada;
   final String? comandaIdPreSelecionada;
   final bool permiteVendaAvulsa;
+  final bool apenasMesa; // Se true, exibe apenas opção de mesa (oculta comanda)
+  final bool apenasComanda; // Se true, exibe apenas opção de comanda (oculta mesa)
 
   const SelecionarMesaComandaDialog({
     super.key,
     this.mesaIdPreSelecionada,
     this.comandaIdPreSelecionada,
     this.permiteVendaAvulsa = false,
+    this.apenasMesa = false,
+    this.apenasComanda = false,
   });
 
   @override
@@ -51,6 +55,8 @@ class SelecionarMesaComandaDialog extends StatefulWidget {
     String? mesaIdPreSelecionada,
     String? comandaIdPreSelecionada,
     bool permiteVendaAvulsa = false,
+    bool apenasMesa = false,
+    bool apenasComanda = false,
   }) async {
     final adaptive = AdaptiveLayoutProvider.of(context);
     final isMobile = adaptive?.isMobile ?? true;
@@ -63,6 +69,8 @@ class SelecionarMesaComandaDialog extends StatefulWidget {
               mesaIdPreSelecionada: mesaIdPreSelecionada,
               comandaIdPreSelecionada: comandaIdPreSelecionada,
               permiteVendaAvulsa: permiteVendaAvulsa,
+              apenasMesa: apenasMesa,
+              apenasComanda: apenasComanda,
             ),
           ),
           fullscreenDialog: true,
@@ -77,6 +85,8 @@ class SelecionarMesaComandaDialog extends StatefulWidget {
           mesaIdPreSelecionada: mesaIdPreSelecionada,
           comandaIdPreSelecionada: comandaIdPreSelecionada,
           permiteVendaAvulsa: permiteVendaAvulsa,
+          apenasMesa: apenasMesa,
+          apenasComanda: apenasComanda,
         ),
       ),
     );
@@ -112,10 +122,43 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
   }
 
   bool get _mostrarSelecaoComanda {
+    // Se apenasMesa for true, nunca mostra comanda
+    if (widget.apenasMesa) {
+      return false;
+    }
+    // Se apenasComanda for true, sempre mostra comanda
+    if (widget.apenasComanda) {
+      return true;
+    }
+    // Caso contrário, segue a lógica original baseada na configuração
     if (_configuracaoRestaurante != null && _configuracaoRestaurante!.controlePorMesa) {
       return false;
     }
     return true;
+  }
+
+  bool get _mostrarSelecaoMesa {
+    // Se apenasComanda for true, nunca mostra mesa
+    if (widget.apenasComanda) {
+      return false;
+    }
+    // Se apenasMesa for true, sempre mostra mesa
+    if (widget.apenasMesa) {
+      return true;
+    }
+    // Caso contrário, sempre mostra mesa
+    return true;
+  }
+
+  /// Título dinâmico baseado no contexto de uso
+  String get _titulo {
+    if (widget.apenasMesa) {
+      return 'Selecionar Mesa';
+    }
+    if (widget.apenasComanda) {
+      return 'Selecionar Comanda';
+    }
+    return 'Selecionar Mesa/Comanda';
   }
 
   @override
@@ -544,7 +587,7 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
             onPressed: _cancelar,
           ),
           title: Text(
-            'Novo Pedido',
+            _titulo,
             style: GoogleFonts.inter(
               fontSize: 20,
               fontWeight: FontWeight.w700,
@@ -585,7 +628,7 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
                 children: [
                   Expanded(
                     child: Text(
-                      'Novo Pedido',
+                      _titulo,
                       style: GoogleFonts.inter(
                           fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -681,9 +724,11 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
         children: [
           // Mensagem informativa - sempre opcional
           Text(
-            _mostrarSelecaoComanda 
-              ? 'Selecione mesa e/ou comanda (opcional)'
-              : 'Selecione uma mesa (opcional)',
+            widget.apenasComanda
+              ? 'Selecione uma comanda'
+              : (_mostrarSelecaoComanda 
+                  ? 'Selecione mesa e/ou comanda (opcional)'
+                  : 'Selecione uma mesa (opcional)'),
             style: GoogleFonts.inter(
               fontSize: 16,
               color: AppTheme.textSecondary,
@@ -692,17 +737,19 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
           ),
           const SizedBox(height: 32),
           
-          // Ícone Mesa
-          _buildCardSelecao(
-            adaptive,
-            label: 'Mesa',
-            selecionado: _mesaSelecionada,
-            numero: _mesaSelecionada?.numero,
-            icon: Icons.table_restaurant,
-            cor: AppTheme.primaryColor,
-            onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
-            onRemover: _isLoadingInicial ? null : _removerMesa,
-          ),
+          // Ícone Mesa (oculto se apenasComanda for true)
+          if (_mostrarSelecaoMesa) ...[
+            _buildCardSelecao(
+              adaptive,
+              label: 'Mesa',
+              selecionado: _mesaSelecionada,
+              numero: _mesaSelecionada?.numero,
+              icon: Icons.table_restaurant,
+              cor: AppTheme.primaryColor,
+              onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
+              onRemover: _isLoadingInicial ? null : _removerMesa,
+            ),
+          ],
           
           if (_mostrarSelecaoComanda) ...[
             const SizedBox(height: 24),
@@ -811,9 +858,11 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
         children: [
           // Mensagem informativa - sempre opcional
           Text(
-            _mostrarSelecaoComanda 
-              ? 'Selecione mesa e/ou comanda (opcional)'
-              : 'Selecione uma mesa (opcional)',
+            widget.apenasComanda
+              ? 'Selecione uma comanda'
+              : (_mostrarSelecaoComanda 
+                  ? 'Selecione mesa e/ou comanda (opcional)'
+                  : 'Selecione uma mesa (opcional)'),
             style: GoogleFonts.inter(
               fontSize: 18,
               color: AppTheme.textSecondary,
@@ -822,17 +871,19 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
           ),
           const SizedBox(height: 40),
           
-          // Ícone Mesa
-          _buildCardSelecao(
-            adaptive,
-            label: 'Mesa',
-            selecionado: _mesaSelecionada,
-            numero: _mesaSelecionada?.numero,
-            icon: Icons.table_restaurant,
-            cor: AppTheme.primaryColor,
-            onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
-            onRemover: _isLoadingInicial ? null : _removerMesa,
-          ),
+          // Ícone Mesa (oculto se apenasComanda for true)
+          if (_mostrarSelecaoMesa) ...[
+            _buildCardSelecao(
+              adaptive,
+              label: 'Mesa',
+              selecionado: _mesaSelecionada,
+              numero: _mesaSelecionada?.numero,
+              icon: Icons.table_restaurant,
+              cor: AppTheme.primaryColor,
+              onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
+              onRemover: _isLoadingInicial ? null : _removerMesa,
+            ),
+          ],
           
           if (_mostrarSelecaoComanda) ...[
             const SizedBox(height: 32),

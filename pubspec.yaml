@@ -41,6 +41,7 @@ dependencies:
   url_launcher: ^6.2.5
   package_info_plus: ^8.0.0
   app_links: ^6.3.3  # Para escutar deeplinks
+  qr_flutter: ^4.1.0  # Para geração de QR Code
   
   # PDF Generation
   pdf: ^3.10.0

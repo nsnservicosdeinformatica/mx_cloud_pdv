@@ -1,4 +1,5 @@
 import 'pagamento_venda_dto.dart';
+import 'nota_fiscal_info_dto.dart';
 
 /// DTO para venda completa (incluindo pagamentos)
 class VendaDto {
@@ -38,8 +39,11 @@ class VendaDto {
   final double freteTotal;
   final double valorTotal;
   
-  // Pagamentos
-  final List<PagamentoVendaDto> pagamentos;
+    // Pagamentos
+    final List<PagamentoVendaDto> pagamentos;
+    
+    // Nota Fiscal emitida (a mais recente da venda)
+    final NotaFiscalInfoDto? notaFiscal;
   
   VendaDto({
     required this.id,
@@ -68,6 +72,7 @@ class VendaDto {
     required this.freteTotal,
     required this.valorTotal,
     required this.pagamentos,
+    this.notaFiscal,
   });
 
   factory VendaDto.fromJson(Map<String, dynamic> json) {
@@ -128,6 +133,11 @@ class VendaDto {
     final pagamentosJson = json['pagamentos'] as List<dynamic>? ?? [];
     final pagamentos = pagamentosJson.map((p) => PagamentoVendaDto.fromJson(p as Map<String, dynamic>)).toList();
 
+    final notaFiscalJson = json['notaFiscal'] as Map<String, dynamic>?;
+    final NotaFiscalInfoDto? notaFiscal = notaFiscalJson != null
+        ? NotaFiscalInfoDto.fromJson(notaFiscalJson)
+        : null;
+
     return VendaDto(
       id: id,
       empresaId: empresaId,
@@ -155,6 +165,7 @@ class VendaDto {
       freteTotal: freteTotal,
       valorTotal: valorTotal,
       pagamentos: pagamentos,
+      notaFiscal: notaFiscal,
     );
   }
 
@@ -186,6 +197,7 @@ class VendaDto {
       'freteTotal': freteTotal,
       'valorTotal': valorTotal,
       'pagamentos': pagamentos.map((p) => p.toJson()).toList(),
+      'notaFiscal': notaFiscal?.toJson(),
     };
   }
 

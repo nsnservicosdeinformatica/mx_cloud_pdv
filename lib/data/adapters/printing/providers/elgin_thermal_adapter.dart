@@ -1,5 +1,6 @@
 import '../../../../core/printing/print_provider.dart';
 import '../../../../core/printing/print_data.dart';
+import '../../../../core/printing/nfce_print_data.dart';
 import 'package:flutter/foundation.dart';
 
 /// Provider de impressão Elgin Térmica (usa SDK Elgin)
@@ -189,6 +190,16 @@ class ElginThermalAdapter implements PrintProvider {
     } catch (e) {
       return false;
     }
+  }
+  
+  @override
+  Future<PrintResult> printNfce(NfcePrintData data) async {
+    // TODO: Implementar impressão de NFC-e para Elgin Thermal
+    debugPrint('⚠️ Impressão de NFC-e não implementada para Elgin Thermal');
+    return PrintResult(
+      success: false,
+      errorMessage: 'Impressão de NFC-e não implementada para Elgin Thermal',
+    );
   }
   
   String _formatCurrency(double value) {

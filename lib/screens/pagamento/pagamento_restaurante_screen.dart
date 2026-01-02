@@ -5,15 +5,23 @@ import '../../core/theme/app_theme.dart';
 import '../../core/payment/payment_service.dart';
 import '../../core/payment/payment_method_option.dart';
 import '../../core/payment/payment_provider.dart';
+import '../../presentation/providers/payment_flow_provider.dart'; // 🆕 Import do PaymentFlowProvider
+import '../../presentation/providers/venda_balcao_provider.dart'; // 🆕 Import do VendaBalcaoProvider
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../presentation/providers/services_provider.dart';
 import '../../data/models/core/vendas/venda_dto.dart';
+import '../../data/models/core/vendas/venda_resumo_dto.dart';
 import '../../data/models/core/produto_agrupado.dart';
 import '../../data/models/core/vendas/produto_nota_fiscal_dto.dart';
 import '../../data/services/core/venda_service.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/events/app_event_bus.dart';
+import '../../core/printing/print_service.dart';
+import '../../core/payment/payment_flow_state.dart'; // 🆕 Import dos estados
+import '../../core/widgets/payment_flow_status_modal.dart'; // 🆕 Import do modal padrão
+import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 
 /// Tela de pagamento específica para restaurante (mesas/comandas)
 /// Permite selecionar produtos para pagar com nota fiscal ou fazer pagamento de reserva
@@ -25,6 +33,10 @@ class PagamentoRestauranteScreen extends StatefulWidget {
   /// Callback chamado quando a venda é concluída/finalizada
   final VoidCallback? onVendaConcluida;
   final bool isModal; // Indica se deve ser exibido como modal
+  /// Lista de IDs de vendas para pagamento múltiplo (quando fornecido, agrupa automaticamente)
+  final List<String>? vendaIds;
+  /// Resumo das vendas para exibir informações (usado quando vendaIds != null)
+  final List<VendaResumoDto>? vendasResumo;
 
   const PagamentoRestauranteScreen({
     super.key,
@@ -33,6 +45,8 @@ class PagamentoRestauranteScreen extends StatefulWidget {
     this.onPagamentoProcessado,
     this.onVendaConcluida,
     this.isModal = false,
+    this.vendaIds,
+    this.vendasResumo,
   });
 
   /// Mostra o pagamento de forma adaptativa:
@@ -44,6 +58,8 @@ class PagamentoRestauranteScreen extends StatefulWidget {
     required List<ProdutoAgrupado> produtosAgrupados,
     VoidCallback? onPagamentoProcessado,
     VoidCallback? onVendaConcluida,
+    List<String>? vendaIds,
+    List<VendaResumoDto>? vendasResumo,
   }) async {
     final adaptive = AdaptiveLayoutProvider.of(context);
     
@@ -58,6 +74,8 @@ class PagamentoRestauranteScreen extends StatefulWidget {
               onPagamentoProcessado: onPagamentoProcessado,
               onVendaConcluida: onVendaConcluida,
               isModal: false,
+              vendaIds: vendaIds,
+              vendasResumo: vendasResumo,
             ),
           ),
         ),
@@ -75,6 +93,8 @@ class PagamentoRestauranteScreen extends StatefulWidget {
           onPagamentoProcessado: onPagamentoProcessado,
           onVendaConcluida: onVendaConcluida,
           isModal: true,
+          vendaIds: vendaIds,
+          vendasResumo: vendasResumo,
         ),
       ),
     );
@@ -85,10 +105,12 @@ class PagamentoRestauranteScreen extends StatefulWidget {
 }
 
 class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen> {
-  PaymentService? _paymentService;
+  // 🆕 Flag para garantir que onVendaConcluida seja chamado apenas uma vez
+  bool _vendaConcluidaCallbackChamado = false;
+  PaymentService? _paymentService; // Ainda usado para obter métodos de pagamento
   List<PaymentMethodOption> _paymentMethods = [];
   bool _isLoading = false;
-  bool _isProcessing = false;
+  // 🆕 Removido: _isProcessing agora é gerenciado pelo PaymentFlowProvider
   PaymentMethodOption? _selectedMethod;
   final TextEditingController _valorController = TextEditingController();
   
@@ -109,6 +131,18 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
   @override
   void initState() {
     super.initState();
+    
+    // 🆕 RESETA o PaymentFlowProvider para garantir estado inicial correto
+    // Isso é importante porque o provider é compartilhado e pode estar em estado inválido
+    // após cancelar uma venda ou concluir outra
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+      debugPrint('🔄 [PagamentoRestauranteScreen] Resetando PaymentFlowProvider');
+      debugPrint('🔄 Estado antes do reset: ${paymentFlowProvider.currentState.description}');
+      paymentFlowProvider.reset();
+      debugPrint('🔄 Estado após reset: ${paymentFlowProvider.currentState.description}');
+    });
+    
     _initializePayment();
     _valorController.text = widget.venda.saldoRestante.toStringAsFixed(2);
   }
@@ -146,6 +180,12 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
   double get _valorTotal => _vendaAtual.valorTotal;
   double get _totalPago => _vendaAtual.totalPago;
   double get _saldoRestante => _vendaAtual.saldoRestante;
+  
+  /// ✅ Getter reutilizável para verificar se saldo zerou
+  bool get _saldoZerou => _saldoRestante <= 0.01;
+  
+  /// Verifica se é pagamento de múltiplas vendas
+  bool get _isPagamentoMultiplasVendas => widget.vendaIds != null && widget.vendaIds!.length > 1;
 
   double? get _valorDigitado {
     final valor = double.tryParse(_valorController.text.replaceAll(',', '.'));
@@ -246,15 +286,14 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
       }
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
-
+    // 🆕 Obtém PaymentFlowProvider do contexto
+    final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+    
     try {
       final valor = _valorDigitado ?? _calcularValorProdutosSelecionados();
       
       // Determina provider key e dados adicionais baseado no método selecionado
-      String providerKey = _selectedMethod!.providerKey ?? 'cash';
+      String providerKey = _selectedMethod!.providerKey;
       Map<String, dynamic>? additionalData;
 
       if (_selectedMethod!.type == PaymentType.cash) {
@@ -263,7 +302,7 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
           'valorRecebido': valor,
         };
       } else if (_selectedMethod!.type == PaymentType.pos) {
-        providerKey = _selectedMethod!.providerKey ?? 'cash';
+        providerKey = _selectedMethod!.providerKey;
         // Determina tipo de transação baseado no label do método selecionado
         final tipoTransacao = _selectedMethod!.label.toLowerCase().contains('débito') || 
                              _selectedMethod!.label.toLowerCase().contains('debito')
@@ -278,21 +317,29 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
         providerKey = 'cash';
       }
 
-      // Se for pagamento via POS (SDK), mostra diálogo informativo
-      if (_selectedMethod!.type == PaymentType.pos) {
-        _mostrarDialogAguardandoCartao(context);
-      }
-
-      final result = await _paymentService!.processPayment(
+      // 🆕 Usa PaymentFlowProvider para processar pagamento
+      // O provider gerencia estado e notificações de UI automaticamente
+      // Não precisa mais mostrar/esconder dialog manualmente
+      await paymentFlowProvider.processPayment(
         providerKey: providerKey,
         amount: valor,
         vendaId: widget.venda.id,
         additionalData: additionalData,
       );
 
-      // Fecha o diálogo se estiver aberto (para qualquer tipo POS)
-      if (_selectedMethod!.type == PaymentType.pos && Navigator.canPop(context)) {
-        Navigator.of(context).pop();
+      // 🆕 Obtém resultado do provider
+      final result = paymentFlowProvider.lastResult;
+      
+      if (result == null) {
+        AppToast.showError(context, 'Erro ao processar pagamento: resultado não disponível');
+        return;
+      }
+
+      // 🆕 Verifica se houve erro no provider
+      if (paymentFlowProvider.errorMessage != null) {
+        AppToast.showError(context, paymentFlowProvider.errorMessage!);
+        paymentFlowProvider.clearError(); // Limpa erro após mostrar
+        return;
       }
 
       if (result.success) {
@@ -308,7 +355,7 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
               .toList();
         }
 
-        // Registra pagamento imediatamente (cash e POS sempre registram imediatamente)
+        // 🆕 Registra pagamento usando o provider (gerencia estado automaticamente)
         if (_selectedMethod!.type == PaymentType.cash || 
             _selectedMethod!.type == PaymentType.pos ||
             !(result.metadata?['pending'] == true)) {
@@ -330,24 +377,59 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
             identificadorTransacao = result.transactionId;
           }
           
-          final response = await _vendaService.registrarPagamento(
-            vendaId: widget.venda.id,
+          // 🆕 Usa provider para registrar pagamento (mostra estado registeringPayment)
+          final registroSuccess = await paymentFlowProvider.registerPayment(
+            vendaService: _vendaService,
+            vendaId: _isPagamentoMultiplasVendas ? null : widget.venda.id,
+            vendaIds: _isPagamentoMultiplasVendas ? widget.vendaIds : null,
             valor: valor,
             formaPagamento: _selectedMethod!.label,
             tipoFormaPagamento: tipoFormaPagamento,
             bandeiraCartao: bandeiraCartao,
             identificadorTransacao: identificadorTransacao,
-            produtos: produtosParaNota, // Passa produtos se houver
-            transactionData: result.transactionData, // Dados padronizados da transação
+            produtos: produtosParaNota,
+            transactionData: result.transactionData,
           );
           
-          if (response.success) {
+          if (registroSuccess) {
+            // 🆕 Usa a venda atualizada que o PaymentFlowProvider já buscou
+            // Se múltiplas vendas, essa venda já é a venda agrupada retornada pelo backend
+            final vendaAtualizadaDoProvider = paymentFlowProvider.vendaAtualizadaAposPagamento;
+            
+            if (vendaAtualizadaDoProvider != null) {
+              setState(() {
+                _vendaAtualizada = vendaAtualizadaDoProvider;
+                _valorController.text = _saldoRestante > 0.01 
+                    ? _saldoRestante.toStringAsFixed(2) 
+                    : '0.00';
+              });
+            } else {
+              // Fallback: busca pela primeira venda ou venda base (não deveria acontecer)
+              final vendaIdParaBuscar = _isPagamentoMultiplasVendas 
+                  ? (widget.vendaIds?.first ?? widget.venda.id)
+                  : widget.venda.id;
+              
+              final vendaResponse = await _vendaService.getVendaById(vendaIdParaBuscar);
+              if (vendaResponse.success && vendaResponse.data != null) {
+                setState(() {
+                  _vendaAtualizada = vendaResponse.data!;
+                  _valorController.text = _saldoRestante > 0.01 
+                      ? _saldoRestante.toStringAsFixed(2) 
+                      : '0.00';
+                });
+              }
+            }
+            
             AppToast.showSuccess(context, 'Pagamento realizado com sucesso!');
             
             // Dispara evento de pagamento processado
-            // O provider reage ao evento e atualiza localmente (sem ir no servidor)
+            // Se múltiplas vendas, dispara para todas ou para a venda agrupada
+            final vendaIdEvento = _isPagamentoMultiplasVendas 
+                ? (_vendaAtualizada?.id ?? widget.vendaIds?.first ?? widget.venda.id)
+                : (_vendaAtualizada?.id ?? widget.venda.id);
+            
             AppEventBus.instance.dispararPagamentoProcessado(
-              vendaId: widget.venda.id,
+              vendaId: vendaIdEvento,
               valor: valor,
               mesaId: widget.venda.mesaId,
               comandaId: widget.venda.comandaId,
@@ -357,44 +439,22 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
             _produtosSelecionados.clear();
             
             // Chama onPagamentoProcessado quando um pagamento é processado (mesmo que parcial)
-            // Isso permite que o chamador saiba que houve um pagamento e pode reagir
             if (widget.onPagamentoProcessado != null) {
               widget.onPagamentoProcessado!();
             }
             
-            // Busca venda atualizada do servidor para refletir o novo pagamento
-            // Isso garante que temos os dados corretos (incluindo o pagamento recém-criado)
-            final vendaResponse = await _vendaService.getVendaById(widget.venda.id);
-            
-            if (vendaResponse.success && vendaResponse.data != null) {
-              setState(() {
-                _vendaAtualizada = vendaResponse.data!;
-                _valorController.text = _saldoRestante > 0.01 
-                    ? _saldoRestante.toStringAsFixed(2) 
-                    : '0.00';
-              });
-              
-              // Se saldo zerou, a UI será atualizada automaticamente para mostrar botão "Concluir Venda"
-              // Não fecha a tela - deixa o usuário escolher se quer concluir
-              if (_saldoRestante > 0.01) {
-                // Ainda há saldo - fecha tela para permitir novo pagamento
-                Navigator.of(context).pop(true);
-              }
-              // Se saldo zerou, mantém a tela aberta mostrando o botão "Concluir Venda"
-            } else {
-              // Se não conseguir buscar venda atualizada, calcula localmente
-              final saldoAnterior = widget.venda.saldoRestante;
-              final novoSaldo = saldoAnterior - valor;
-              
-              if (novoSaldo <= 0.01) {
-                // Saldo zerou - oferece conclusão (fallback)
-                _oferecerConclusaoVenda();
-              } else {
-                Navigator.of(context).pop(true);
-              }
+            // ✅ Usa getter reutilizável para verificar saldo
+            if (!_saldoZerou) {
+              // Ainda há saldo - fecha tela para permitir novo pagamento
+              Navigator.of(context).pop(true);
             }
+            // Se saldo zerou, mantém a tela aberta mostrando o botão "Concluir Venda"
           } else {
-            AppToast.showError(context, 'Erro ao registrar pagamento no servidor');
+            // Erro já foi tratado pelo provider
+            if (paymentFlowProvider.errorMessage != null) {
+              AppToast.showError(context, paymentFlowProvider.errorMessage!);
+              paymentFlowProvider.clearError();
+            }
           }
         }
       } else {
@@ -411,7 +471,7 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
       AppToast.showError(context, 'Erro ao processar pagamento: $e');
     } finally {
       setState(() {
-        _isProcessing = false;
+        // 🆕 Removido: _isProcessing agora é gerenciado pelo PaymentFlowProvider
       });
     }
   }
@@ -432,68 +492,102 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
     }
   }
 
-  /// Oferece opção de concluir venda quando saldo zerar
-  Future<void> _oferecerConclusaoVenda() async {
-    final confirm = await AppDialog.showConfirm(
-      context: context,
-      title: 'Concluir Venda',
-      message: 'O saldo foi totalmente pago. Deseja concluir a venda e emitir a nota fiscal final?',
-      confirmText: 'Concluir',
-      cancelText: 'Depois',
-      icon: Icons.check_circle_outline,
-      iconColor: AppTheme.primaryColor,
-      confirmColor: AppTheme.primaryColor,
-    );
-
-    if (confirm == true) {
-      await _concluirVenda();
-    } else {
-      Navigator.of(context).pop(true);
-    }
-  }
-
-  /// Conclui a venda (emite nota fiscal final)
+  /// ✅ Conclui a venda usando PaymentFlowProvider (com State Machine)
+  /// 
+  /// O modal de status será mostrado automaticamente pelo PaymentFlowStatusModal
+  /// quando o estado mudar para processamento
   Future<void> _concluirVenda() async {
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      final response = await _vendaService.concluirVenda(widget.venda.id);
-
-      if (response.success) {
-        AppToast.showSuccess(context, 'Venda concluída com sucesso!');
+    // 🆕 Obtém PaymentFlowProvider do contexto
+    final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
+    
+    // 🆕 Verifica se pode concluir antes de tentar
+    debugPrint('🏁 [PagamentoRestauranteScreen] ========== TENTANDO CONCLUIR VENDA ==========');
+    debugPrint('🏁 Estado atual: ${paymentFlowProvider.currentState.description}');
+    debugPrint('🏁 canConcludeSale: ${paymentFlowProvider.canConcludeSale}');
+    debugPrint('🏁 Saldo zerou? $_saldoZerou');
+    debugPrint('🏁 Saldo restante: R\$ ${_saldoRestante.toStringAsFixed(2)}');
+    
+    // 🆕 Se não pode concluir mas o saldo zerou, tenta marcar como pronto primeiro
+    if (!paymentFlowProvider.canConcludeSale && _saldoZerou) {
+      debugPrint('⚠️ [PagamentoRestauranteScreen] Não pode concluir, mas saldo zerou. Tentando markReadyToComplete()...');
+      paymentFlowProvider.markReadyToComplete();
+      debugPrint('🏁 Estado após markReadyToComplete: ${paymentFlowProvider.currentState.description}');
+      debugPrint('🏁 canConcludeSale após: ${paymentFlowProvider.canConcludeSale}');
+    }
+    
+    // 🆕 Usa PaymentFlowProvider para concluir venda
+    // O modal de status será mostrado automaticamente quando o estado mudar
+      final success = await paymentFlowProvider.concludeSale(
+        concluirVendaCallback: (vendaId) => _vendaService.concluirVenda(vendaId),
+        getVendaCallback: (vendaId) => _vendaService.getVendaById(vendaId), // ✅ Adiciona callback para buscar venda
+        vendaId: widget.venda.id,
+      );
+    
+    if (!success) {
+      // Se falhou, mostra erro
+      if (paymentFlowProvider.errorMessage != null) {
+        AppToast.showError(context, paymentFlowProvider.errorMessage!);
+        paymentFlowProvider.clearError();
+      }
+      return;
+    }
+    
+    // Se sucesso, continua com impressão e finalização
+    if (success) {
+      // Se sucesso, verifica se precisa imprimir nota fiscal
+      // O provider já transicionou para invoiceAuthorized se tem nota fiscal
+      if (paymentFlowProvider.currentState == PaymentFlowState.invoiceAuthorized) {
+        // Busca dados e imprime
+        final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+        final notaFiscalId = paymentFlowProvider.vendaFinalizadaData?['notaFiscalId'] as String?;
         
-        // Dispara evento de venda finalizada
-        if (widget.venda.mesaId != null) {
-          AppEventBus.instance.dispararVendaFinalizada(
-            vendaId: widget.venda.id,
-            mesaId: widget.venda.mesaId!,
-            comandaId: widget.venda.comandaId,
+        if (notaFiscalId != null) {
+          // Imprime usando o provider (gerencia estados automaticamente)
+          await paymentFlowProvider.printInvoice(
+            printNfceCallback: (data) async {
+              final printService = await PrintService.getInstance();
+              return await printService.printNfce(data: data);
+            },
+            getDadosCallback: (id) => servicesProvider.notaFiscalService.getDadosParaImpressao(id),
+            notaFiscalId: notaFiscalId,
           );
         }
-        
-        // Chama onVendaConcluida quando a venda é realmente concluída/finalizada
-        // Isso é diferente de onPagamentoProcessado que é chamado a cada pagamento
-        if (widget.onVendaConcluida != null) {
-          widget.onVendaConcluida!();
-        }
-        
-        Navigator.of(context).pop(true);
-      } else {
-        AppToast.showError(context, response.message ?? 'Erro ao concluir venda');
       }
-    } catch (e) {
-      AppToast.showError(context, 'Erro ao concluir venda: $e');
-    } finally {
-      setState(() {
-        _isProcessing = false;
-      });
+      
+      // Verifica se houve erro
+      if (paymentFlowProvider.errorMessage != null) {
+        AppToast.showError(context, paymentFlowProvider.errorMessage!);
+        paymentFlowProvider.clearError();
+      } else {
+        AppToast.showSuccess(context, 'Venda concluída com sucesso!');
+      }
+      
+      // Dispara evento de venda finalizada
+      if (widget.venda.mesaId != null) {
+        AppEventBus.instance.dispararVendaFinalizada(
+          vendaId: widget.venda.id,
+          mesaId: widget.venda.mesaId!,
+          comandaId: widget.venda.comandaId,
+        );
+      }
+      
+      // 🆕 onVendaConcluida será chamado automaticamente no build() quando estado for completed
+      // Isso garante que a venda pendente seja limpa antes do dialog fechar
+    } else {
+      // Se falhou, mostra erro
+      if (paymentFlowProvider.errorMessage != null) {
+        AppToast.showError(context, paymentFlowProvider.errorMessage!);
+        paymentFlowProvider.clearError();
+      }
     }
   }
 
-  /// Mostra diálogo informativo para pagamento via SDK
-  void _mostrarDialogAguardandoCartao(BuildContext context) {
+  /// 🆕 Mostra diálogo informativo para pagamento via SDK
+  /// Agora recebe mensagem do provider
+  void _mostrarDialogAguardandoCartao(BuildContext context, String message) {
+    if (_isDialogAberto) return; // Evita abrir múltiplos dialogs
+    
+    _isDialogAberto = true;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -532,7 +626,7 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Aproxime ou insira o cartão no leitor',
+                    message, // 🆕 Usa mensagem do provider
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       color: AppTheme.textSecondary,
@@ -547,7 +641,9 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
           ),
         );
       },
-    );
+    ).then((_) {
+      _isDialogAberto = false; // Marca como fechado quando dialog é fechado
+    });
   }
 
   @override
@@ -559,26 +655,108 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
       );
     }
 
+    // ✅ Único Consumer no build principal
+    return Consumer<PaymentFlowProvider>(
+      builder: (context, paymentFlowProvider, child) {
+        // 🆕 Fecha dialog automaticamente quando venda é concluída
+        if (paymentFlowProvider.currentState == PaymentFlowState.completed && !_vendaConcluidaCallbackChamado) {
+          _vendaConcluidaCallbackChamado = true; // Marca como chamado para evitar múltiplas chamadas
+          
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            
+            try {
+              // 🆕 Limpa venda pendente diretamente (se for venda balcão)
+              // Isso garante que a limpeza aconteça mesmo se o callback não for chamado
+              try {
+                final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);
+                if (vendaBalcaoProvider.temVendaPendente && vendaBalcaoProvider.vendaIdPendente == widget.venda.id) {
+                  await vendaBalcaoProvider.limparVendaPendente();
+                  debugPrint('✅ [PagamentoRestauranteScreen] Venda pendente limpa: ${widget.venda.id}');
+                }
+              } catch (e) {
+                // Se não tiver VendaBalcaoProvider ou não for venda balcão, ignora
+                debugPrint('ℹ️ [PagamentoRestauranteScreen] Não é venda balcão ou provider não disponível: $e');
+              }
+              
+              // 🆕 Chama callback de venda concluída ANTES de fechar
+              // Isso garante que a venda pendente seja limpa antes do dialog fechar
+              if (widget.onVendaConcluida != null) {
+                await Future.microtask(() => widget.onVendaConcluida!());
+                debugPrint('✅ [PagamentoRestauranteScreen] onVendaConcluida chamado com sucesso');
+              }
+            } catch (e) {
+              debugPrint('❌ [PagamentoRestauranteScreen] Erro ao processar conclusão: $e');
+            }
+            
+            // Fecha dialog/tela após limpar venda pendente
+            if (mounted && Navigator.canPop(context)) {
+              Navigator.of(context).pop(true);
+              debugPrint('✅ [PagamentoRestauranteScreen] Dialog fechado após venda concluída');
+            }
+          });
+        }
+        
+        // Gerencia dialog "Aguardando cartão"
+        _handleWaitingCardDialog(context, paymentFlowProvider);
+        
+        // 🆕 Mostra/esconde modal de status automaticamente baseado no estado
+        PaymentFlowStatusModal.showIfNeeded(context, paymentFlowProvider);
+        
+        // Passa provider para métodos auxiliares
+        return _buildScaffold(adaptive, paymentFlowProvider);
+      },
+    );
+  }
+  
+  /// ✅ Método auxiliar para gerenciar dialog "Aguardando cartão"
+  void _handleWaitingCardDialog(BuildContext context, PaymentFlowProvider provider) {
+    if (provider.showWaitingCardDialog) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_isDialogAberto) {
+          _mostrarDialogAguardandoCartao(context, provider.waitingCardMessage);
+        }
+      });
+    } else {
+      if (_isDialogAberto) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (Navigator.canPop(context)) {
+            Navigator.of(context).pop();
+            _isDialogAberto = false;
+          }
+        });
+      }
+    }
+  }
+
+  // 🆕 Flag para controlar se dialog está aberto
+  bool _isDialogAberto = false;
+
+  // ✅ Método auxiliar para construir o scaffold (recebe provider)
+  Widget _buildScaffold(AdaptiveLayoutProvider adaptive, PaymentFlowProvider paymentFlowProvider) {
     // Conteúdo comum (reutilizado em ambos os modos)
     Widget buildContent() {
       if (_isLoading) {
         return const Center(child: CircularProgressIndicator());
       }
       
-      final saldoZero = _saldoRestante <= 0.01;
-      
+      // ✅ Usa getter reutilizável
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // Resumo da venda
           _buildResumoVenda(adaptive),
           
-          // Opção de emitir nota parcial (apenas se houver saldo)
-          if (!saldoZero)
+          // Informações das múltiplas vendas (se aplicável)
+          if (_isPagamentoMultiplasVendas)
+            _buildInfoMultiplasVendas(adaptive),
+          
+          // Opção de emitir nota parcial (apenas se houver saldo e não for múltiplas vendas)
+          if (!_saldoZerou && !_isPagamentoMultiplasVendas)
             _buildOpcaoNotaParcial(adaptive),
           
           // Lista de produtos (se emitir nota parcial estiver marcado)
-          if (!saldoZero && _emitirNotaParcial)
+          if (!_saldoZerou && _emitirNotaParcial)
             widget.isModal
                 ? ConstrainedBox(
                     constraints: BoxConstraints(
@@ -590,8 +768,8 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                     child: _buildListaProdutos(adaptive),
                   ),
           
-          // Formulário de pagamento
-          _buildFormularioPagamento(adaptive),
+          // Formulário de pagamento (passa provider)
+          _buildFormularioPagamento(adaptive, paymentFlowProvider),
         ],
       );
     }
@@ -763,6 +941,133 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
       height: 50,
       margin: const EdgeInsets.symmetric(horizontal: 16),
       color: Colors.grey.shade200,
+    );
+  }
+
+  /// Exibe informações sobre as múltiplas vendas sendo pagas
+  Widget _buildInfoMultiplasVendas(AdaptiveLayoutProvider adaptive) {
+    if (widget.vendasResumo == null || widget.vendasResumo!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final formatter = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final vendas = widget.vendasResumo!;
+    final saldoTotal = vendas.fold<double>(0, (sum, v) => sum + v.saldoRestante);
+
+    final padding = adaptive.isMobile ? 16.0 : 20.0;
+
+    return Container(
+      margin: EdgeInsets.fromLTRB(padding, 12, padding, 0),
+      padding: EdgeInsets.all(adaptive.isMobile ? 16 : 18),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                color: AppTheme.primaryColor,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Pagando ${vendas.length} venda${vendas.length > 1 ? 's' : ''} juntas',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...vendas.take(3).map((venda) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      venda.isVendaSemComanda
+                          ? Icons.table_restaurant
+                          : Icons.receipt_long,
+                      size: 16,
+                      color: AppTheme.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        venda.isVendaSemComanda
+                            ? 'Sem Comanda'
+                            : 'Comanda ${venda.comandaCodigo ?? ''}',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      formatter.format(venda.saldoRestante),
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+          if (vendas.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '... e mais ${vendas.length - 3} venda${vendas.length - 3 > 1 ? 's' : ''}',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.successColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Total a pagar:',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                Text(
+                  formatter.format(saldoTotal),
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.successColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1073,10 +1378,10 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
     );
   }
 
-  Widget _buildFormularioPagamento(AdaptiveLayoutProvider adaptive) {
+  Widget _buildFormularioPagamento(AdaptiveLayoutProvider adaptive, PaymentFlowProvider paymentFlowProvider) {
     final valorProdutos = _emitirNotaParcial ? _calcularValorProdutosSelecionados() : 0.0;
     final padding = adaptive.isMobile ? 16.0 : 20.0;
-    final saldoZero = _saldoRestante <= 0.01;
+    // ✅ Usa getter reutilizável
     
     return Container(
       margin: EdgeInsets.fromLTRB(padding, 12, padding, padding),
@@ -1100,7 +1405,7 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           // Se saldo é zero, mostra mensagem e botão de concluir
-          if (saldoZero) ...[
+          if (_saldoZerou) ...[
             Container(
               padding: EdgeInsets.all(adaptive.isMobile ? 16 : 20),
               decoration: BoxDecoration(
@@ -1137,44 +1442,15 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isProcessing ? null : _concluirVenda,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(
-                          vertical: adaptive.isMobile ? 14 : 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: _isProcessing
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.check_circle, size: 20),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Concluir Venda',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
+                  // ✅ Usa widget reutilizável (provider já passado como parâmetro)
+                  // 🆕 Mostra mensagem diferente baseado no estado
+                  _buildActionButton(
+                    onPressed: _concluirVenda,
+                    text: _getButtonTextForState(paymentFlowProvider.currentState),
+                    backgroundColor: AppTheme.primaryColor,
+                    icon: _getIconForState(paymentFlowProvider.currentState),
+                    isProcessing: paymentFlowProvider.isProcessing,
+                    adaptive: adaptive,
                   ),
                 ],
               ),
@@ -1208,23 +1484,35 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
             // Campo de valor
             TextField(
               controller: _valorController,
+              enabled: !_isPagamentoMultiplasVendas,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 labelText: 'Valor do Pagamento',
-                hintText: '0.00',
+                hintText: _isPagamentoMultiplasVendas 
+                    ? 'Valor fixo (todas as vendas)' 
+                    : '0.00',
                 prefixIcon: const Icon(Icons.attach_money, size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.grey.shade50,
+                fillColor: _isPagamentoMultiplasVendas 
+                    ? Colors.grey.shade200 
+                    : Colors.grey.shade50,
                 contentPadding: EdgeInsets.symmetric(
                   horizontal: adaptive.isMobile ? 16 : 20,
                   vertical: adaptive.isMobile ? 16 : 18,
                 ),
+                helperText: _isPagamentoMultiplasVendas 
+                    ? 'O valor é fixo quando há múltiplas vendas' 
+                    : null,
+                helperMaxLines: 2,
               ),
               style: GoogleFonts.inter(
                 fontSize: adaptive.isMobile ? 15 : 16,
+                color: _isPagamentoMultiplasVendas 
+                    ? AppTheme.textSecondary 
+                    : AppTheme.textPrimary,
               ),
               onChanged: (value) {
                 setState(() {});
@@ -1303,42 +1591,116 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
             
             const SizedBox(height: 12),
             
-            // Botão de pagar
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isProcessing ? null : _processarPagamento,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.successColor,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(
-                    vertical: adaptive.isMobile ? 14 : 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: _isProcessing
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : Text(
-                        'Pagar',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-              ),
+            // ✅ Usa widget reutilizável (provider já passado como parâmetro)
+            _buildActionButton(
+              onPressed: _processarPagamento,
+              text: 'Pagar',
+              backgroundColor: AppTheme.successColor,
+              isProcessing: paymentFlowProvider.isProcessing,
+              adaptive: adaptive,
             ),
           ],
         ],
       ),
     );
   }
+  
+  /// ✅ Widget reutilizável para botões de ação com loading
+  Widget _buildActionButton({
+    required VoidCallback? onPressed,
+    required String text,
+    required Color backgroundColor,
+    IconData? icon,
+    required bool isProcessing,
+    required AdaptiveLayoutProvider adaptive,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: isProcessing ? null : onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: backgroundColor,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(
+            vertical: adaptive.isMobile ? 14 : 16,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: isProcessing
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : icon != null
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        text,
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    text,
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+      ),
+    );
+  }
+  
+  /// 🆕 Retorna texto do botão baseado no estado atual
+  String _getButtonTextForState(PaymentFlowState state) {
+    switch (state) {
+      case PaymentFlowState.registeringPayment:
+        return 'Registrando Pagamento...';
+      case PaymentFlowState.concludingSale:
+        return 'Concluindo Venda...';
+      case PaymentFlowState.creatingInvoice:
+        return 'Criando Nota Fiscal...';
+      case PaymentFlowState.sendingToSefaz:
+        return 'Enviando para SEFAZ...';
+      case PaymentFlowState.printingInvoice:
+        return 'Imprimindo Nota...';
+      case PaymentFlowState.completed:
+        return 'Concluído!';
+      default:
+        return 'Concluir Venda';
+    }
+  }
+  
+  /// 🆕 Retorna ícone baseado no estado atual
+  IconData? _getIconForState(PaymentFlowState state) {
+    switch (state) {
+      case PaymentFlowState.registeringPayment:
+        return Icons.cloud_upload;
+      case PaymentFlowState.concludingSale:
+        return Icons.hourglass_empty;
+      case PaymentFlowState.creatingInvoice:
+        return Icons.receipt_long;
+      case PaymentFlowState.sendingToSefaz:
+        return Icons.cloud_upload;
+      case PaymentFlowState.printingInvoice:
+        return Icons.print;
+      case PaymentFlowState.completed:
+        return Icons.check_circle;
+      default:
+        return Icons.check_circle;
+    }
+  }
+  
 }

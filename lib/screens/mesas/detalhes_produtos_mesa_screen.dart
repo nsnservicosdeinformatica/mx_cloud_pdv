@@ -14,7 +14,7 @@ import '../../data/models/modules/restaurante/configuracao_restaurante_dto.dart'
 import '../../data/repositories/pedido_local_repository.dart';
 import '../../data/services/core/pedido_service.dart';
 import '../pedidos/restaurante/novo_pedido_restaurante_screen.dart';
-import '../pedidos/restaurante/dialogs/selecionar_mesa_comanda_dialog.dart';
+import '../dialogs/selecionar_mesa_comanda_dialog.dart';
 import '../../data/models/core/vendas/venda_dto.dart';
 import '../../data/models/core/vendas/pagamento_venda_dto.dart';
 import '../../data/services/modules/restaurante/mesa_service.dart';
@@ -46,6 +46,7 @@ import '../../core/utils/status_utils.dart';
 import '../../core/events/app_event_bus.dart';
 import '../../presentation/providers/mesa_detalhes_provider.dart';
 import '../../widgets/h4nd_loading.dart';
+import '../../core/widgets/loading_helper.dart';
 
 /// Resultado do cálculo de pagamentos
 class _PagamentosCalculados {
@@ -146,12 +147,21 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
              statusVisual == 'reservada' ||
              (statusVisual == 'aguardando pagamento' && _provider.vendaAtual == null);
     } else {
-      // Comanda: pode criar pedido se estiver "Em Uso" (tem sessão ativa)
-      // OU se estiver Livre (primeiro pedido cria a sessão)
-      // Se está sincronizando, considera como "em uso"
+      // Comanda: pode criar pedido se:
+      // 1. Está sincronizando ou tem pedidos pendentes (pedidos locais)
+      // 2. Tem produtos na comanda (já tem pedidos do servidor)
+      // 3. Status visual é "em uso" ou "livre"
       if (_provider.estaSincronizando || _provider.pedidosPendentes > 0) {
         return true; // Se tem pedidos locais, pode criar mais pedidos
       }
+      
+      // Se tem produtos na comanda, está em uso e pode criar mais pedidos
+      final produtos = _provider.getProdutosParaAcao();
+      if (produtos.isNotEmpty) {
+        return true;
+      }
+      
+      // Caso contrário, verifica status visual
       return statusVisual == 'em uso' || statusVisual == 'livre';
     }
   }
@@ -326,6 +336,18 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
           
           const Spacer(),
           
+          // Botão de transferir mesa (apenas para mesas)
+          if (widget.entidade.tipo == TipoEntidade.mesa) ...[
+            _buildTransferirMesaButton(adaptive),
+            const SizedBox(width: 8),
+          ],
+          
+          // Botão de transferir comanda (apenas para comandas)
+          if (widget.entidade.tipo == TipoEntidade.comanda) ...[
+            _buildTransferirComandaButton(adaptive),
+            const SizedBox(width: 8),
+          ],
+          
           // Botão de atualizar (padrão igual área de mesas)
           _buildRefreshButton(adaptive),
         ],
@@ -471,6 +493,80 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     );
   }
   
+  /// Botão de transferir mesa (apenas para mesas)
+  Widget _buildTransferirMesaButton(AdaptiveLayoutProvider adaptive) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _abrirDialogTransferirMesa,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        child: Tooltip(
+          message: 'Transferir mesa',
+          child: Container(
+            padding: EdgeInsets.all(adaptive.isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+              border: Border.all(
+                color: Colors.grey.shade300,
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.swap_horiz_rounded,
+              color: AppTheme.textPrimary,
+              size: adaptive.isMobile ? 20 : 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botão de transferir comanda (apenas para comandas)
+  Widget _buildTransferirComandaButton(AdaptiveLayoutProvider adaptive) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _abrirDialogTransferirComanda,
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        child: Tooltip(
+          message: 'Transferir comanda',
+          child: Container(
+            padding: EdgeInsets.all(adaptive.isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+              border: Border.all(
+                color: Colors.grey.shade300,
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.swap_horiz_rounded,
+              color: AppTheme.textPrimary,
+              size: adaptive.isMobile ? 20 : 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Botão de atualizar (padrão igual área de mesas)
   Widget _buildRefreshButton(AdaptiveLayoutProvider adaptive) {
     return Material(
@@ -522,21 +618,8 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
   /// Verifica se deve mostrar os botões de ação (imprimir e pagar)
   bool _deveMostrarBotoesAcao() {
-    // Se não é mesa com controle por comanda, usa lógica normal
-    if (widget.entidade.tipo != TipoEntidade.mesa ||
-        _configuracaoRestaurante == null ||
-        !_configuracaoRestaurante!.controlePorComanda) {
-      return _provider.vendaAtual != null && _provider.produtosAgrupados.isNotEmpty;
-    }
-
-    // Se controle é por comanda:
-    // - Sempre mostra botões se houver aba selecionada e produtos
-    if (_provider.abaSelecionada == null) {
-      return false; // Sem aba selecionada, não mostra botões
-    }
-
+    // Mostra botões se houver produtos (independente de aba selecionada, tipo de entidade ou configuração)
     final produtos = _provider.getProdutosParaAcao();
-    // Permite mostrar botões se tiver produtos, mesmo sem venda (pode criar venda no pagamento)
     return produtos.isNotEmpty;
   }
 
@@ -557,8 +640,37 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     
     // Verifica se a aba selecionada é "Sem Comanda"
     final isAbaSemComanda = _provider.abaSelecionada == MesaDetalhesProvider.semComandaId;
-                            
-    if (_provider.abaSelecionada != null && !isAbaSemComanda) {
+    
+    // Se está na aba de mesa (visão geral - abaSelecionada == null) e entidade é mesa
+    if (_provider.abaSelecionada == null && widget.entidade.tipo == TipoEntidade.mesa) {
+      // Agregar pagamentos de TODAS as vendas da mesa (todas as comandas + sem comanda)
+      final todasPagamentos = <PagamentoVendaDto>[];
+      
+      // Pagamentos de todas as comandas
+      for (final comanda in _provider.comandasDaMesa) {
+        // Primeiro tenta pegar da venda (se disponível)
+        if (comanda.venda?.pagamentos.isNotEmpty == true) {
+          todasPagamentos.addAll(comanda.venda!.pagamentos);
+        } 
+        // Se não tiver na venda, tenta pegar diretamente da comanda
+        else if (comanda.comanda.pagamentos.isNotEmpty) {
+          todasPagamentos.addAll(comanda.comanda.pagamentos);
+        }
+      }
+      
+      // Pagamentos da venda sem comanda (se houver)
+      final vendaSemComanda = _provider.vendasPorComanda[MesaDetalhesProvider.semComandaId];
+      if (vendaSemComanda?.pagamentos.isNotEmpty == true) {
+        todasPagamentos.addAll(vendaSemComanda!.pagamentos);
+      }
+      
+      // Calcular valor pago total (apenas pagamentos confirmados e não cancelados)
+      valorPago = todasPagamentos
+          .where((p) => p.status == 2 && !p.isCancelado) // StatusPagamento.Confirmado = 2
+          .fold(0.0, (sum, p) => sum + p.valor);
+      
+      pagamentos = todasPagamentos;
+    } else if (_provider.abaSelecionada != null && !isAbaSemComanda) {
       // Se há aba selecionada (comanda específica), busca pagamentos da comanda
       final comanda = _provider.comandasDaMesa.firstWhere(
         (c) => c.comanda.id == _provider.abaSelecionada,
@@ -590,7 +702,6 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
         valorPago = venda.totalPago;
       }
     }
-    // Não há mais "visão geral" - sempre trabalha com aba selecionada
     
     return _PagamentosCalculados(
       pagamentos: pagamentos,
@@ -663,9 +774,377 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     }
   }
 
+  /// Abre o dialog para selecionar mesa destino e transferir vendas
+  Future<void> _abrirDialogTransferirMesa() async {
+    // Validar que é uma mesa
+    if (widget.entidade.tipo != TipoEntidade.mesa) {
+      AppToast.showError(context, 'Apenas mesas podem ser transferidas');
+      return;
+    }
+
+    // Abrir dialog de seleção de mesa destino (apenas mesas, sem comandas)
+    final resultado = await SelecionarMesaComandaDialog.show(
+      context,
+      apenasMesa: true, // Exibe apenas opção de mesa
+    );
+
+    // Se usuário cancelou ou não selecionou mesa, não faz nada
+    if (resultado == null || resultado.mesa == null) {
+      return;
+    }
+
+    final mesaDestino = resultado.mesa!;
+
+    // Confirmar transferência
+    final confirmar = await AppDialog.showConfirm(
+      context: context,
+      title: 'Transferir Mesa',
+      message: 'Deseja transferir todas as vendas da mesa ${widget.entidade.numero} para a mesa ${mesaDestino.numero}?',
+      confirmText: 'Transferir',
+      cancelText: 'Cancelar',
+      icon: Icons.swap_horiz_rounded,
+      iconColor: AppTheme.primaryColor,
+      confirmColor: AppTheme.primaryColor,
+    );
+
+    if (confirmar != true) {
+      return;
+    }
+
+    // Mostrar loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: H4ndLoading(size: 60)),
+    );
+
+    try {
+      // Chamar serviço de transferência
+      final response = await _servicesProvider.vendaService.transferirVendasDeMesa(
+        mesaOrigemId: widget.entidade.id,
+        mesaDestinoId: mesaDestino.id,
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Fecha loading
+
+      if (response.success) {
+        // Sucesso: exibir mensagem e atualizar UI
+        AppToast.showSuccess(
+          context,
+          response.message ?? 'Vendas transferidas com sucesso!',
+        );
+
+        // Atualizar dados da tela atual
+        _provider.loadProdutos(refresh: true);
+        _provider.loadVendaAtual();
+
+        // Disparar eventos para atualizar outras telas
+        AppEventBus.instance.dispararStatusMesaMudou(
+          mesaId: widget.entidade.id,
+          dadosExtras: {'acao': 'transferencia', 'mesaDestinoId': mesaDestino.id},
+        );
+        AppEventBus.instance.dispararStatusMesaMudou(
+          mesaId: mesaDestino.id,
+          dadosExtras: {'acao': 'transferencia', 'mesaOrigemId': widget.entidade.id},
+        );
+      } else {
+        // Erro: exibir mensagem
+        AppToast.showError(
+          context,
+          response.message ?? 'Erro ao transferir vendas',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Fecha loading
+      
+      debugPrint('❌ Erro ao transferir vendas de mesa: $e');
+      AppToast.showError(
+        context,
+        'Erro ao transferir vendas: ${e.toString()}',
+      );
+    }
+  }
+
+  Future<void> _abrirDialogTransferirComanda() async {
+    // Validar que é uma comanda
+    if (widget.entidade.tipo != TipoEntidade.comanda) {
+      AppToast.showError(context, 'Apenas comandas podem ser transferidas');
+      return;
+    }
+
+    // Abrir dialog de seleção de comanda destino (apenas comandas, sem mesas)
+    final resultado = await SelecionarMesaComandaDialog.show(
+      context,
+      apenasComanda: true, // Exibe apenas opção de comanda
+    );
+
+    // Se usuário cancelou ou não selecionou comanda, não faz nada
+    if (resultado == null || resultado.comanda == null) {
+      return;
+    }
+
+    final comandaDestino = resultado.comanda!;
+
+    // Confirmar transferência
+    final confirmar = await AppDialog.showConfirm(
+      context: context,
+      title: 'Transferir Comanda',
+      message: 'Deseja transferir a venda da comanda ${widget.entidade.numero} para a comanda ${comandaDestino.numero}?',
+      confirmText: 'Transferir',
+      cancelText: 'Cancelar',
+      icon: Icons.swap_horiz_rounded,
+      iconColor: AppTheme.primaryColor,
+      confirmColor: AppTheme.primaryColor,
+    );
+
+    if (confirmar != true) {
+      return;
+    }
+
+    // Mostrar loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: H4ndLoading(size: 60)),
+    );
+
+    try {
+      // Chamar serviço de transferência
+      final response = await _servicesProvider.vendaService.transferirVendaDeComanda(
+        comandaOrigemId: widget.entidade.id,
+        comandaDestinoId: comandaDestino.id,
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Fecha loading
+
+      if (response.success) {
+        // Sucesso: exibir mensagem e atualizar UI
+        AppToast.showSuccess(
+          context,
+          response.message ?? 'Venda transferida com sucesso!',
+        );
+
+        // Atualizar dados da tela atual
+        _provider.loadProdutos(refresh: true);
+        _provider.loadVendaAtual();
+
+        // Disparar eventos para atualizar outras telas
+        // Nota: Usando dispararStatusMesaMudou pois comandas estão vinculadas a mesas
+        // Se a venda tiver mesa, dispara evento para atualizar a mesa também
+        if (_provider.vendaAtual?.mesaId != null) {
+          AppEventBus.instance.dispararStatusMesaMudou(
+            mesaId: _provider.vendaAtual!.mesaId!,
+            dadosExtras: {
+              'acao': 'transferencia_comanda',
+              'comandaOrigemId': widget.entidade.id,
+              'comandaDestinoId': comandaDestino.id,
+            },
+          );
+        }
+      } else {
+        // Erro: exibir mensagem
+        AppToast.showError(
+          context,
+          response.message ?? 'Erro ao transferir venda',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Fecha loading
+      
+      debugPrint('❌ Erro ao transferir venda de comanda: $e');
+      AppToast.showError(
+        context,
+        'Erro ao transferir venda: ${e.toString()}',
+      );
+    }
+  }
+
   Future<void> _abrirTelaPagamento() async {
-    var venda = _getVendaParaAcao();
     final produtos = _getProdutosParaAcao();
+
+    if (produtos.isEmpty) {
+      AppToast.showError(context, 'Nenhum produto disponível para pagamento');
+      return;
+    }
+
+    // Se está na visão geral da mesa (abaSelecionada == null), verificar se há múltiplas vendas
+    // Para comandas, sempre segue o fluxo normal (uma comanda = uma venda)
+    if (_provider.abaSelecionada == null && widget.entidade.tipo == TipoEntidade.mesa) {
+      // Buscar resumo de vendas abertas da mesa
+      LoadingHelper.show(context);
+      
+      try {
+        final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+        final vendasResumoResponse = await servicesProvider.vendaService.getVendasResumoPorMesa(widget.entidade.id);
+        
+        if (!mounted) return;
+        LoadingHelper.hide(context);
+        
+        if (!vendasResumoResponse.success || vendasResumoResponse.data == null) {
+          AppToast.showError(context, vendasResumoResponse.message);
+          return;
+        }
+        
+        final vendasResumo = vendasResumoResponse.data!;
+        
+        // Se há apenas uma venda, busca a venda completa e abre pagamento
+        if (vendasResumo.length == 1) {
+          final vendaResumo = vendasResumo.first;
+          final vendaId = vendaResumo.id;
+          
+          if (vendaId == null) {
+            AppToast.showError(context, 'Erro: venda sem ID');
+            return;
+          }
+          
+          // Buscar venda completa pelo ID do resumo
+          LoadingHelper.show(context);
+          try {
+            final vendaCompletaResponse = await servicesProvider.vendaService.getVendaById(vendaId);
+            LoadingHelper.hide(context);
+            
+            if (!vendaCompletaResponse.success || vendaCompletaResponse.data == null) {
+              AppToast.showError(context, vendaCompletaResponse.message ?? 'Erro ao buscar venda para pagamento');
+              return;
+            }
+            
+            final vendaCompleta = vendaCompletaResponse.data!;
+            
+            // Abre tela de pagamento normalmente
+            final result = await PagamentoRestauranteScreen.show(
+              context,
+              venda: vendaCompleta,
+              produtosAgrupados: produtos,
+              onPagamentoProcessado: () {
+                // Não precisa fazer nada - provider já reage ao evento
+              },
+              onVendaConcluida: () {
+                _provider.loadProdutos(refresh: true);
+              },
+            );
+
+            if (result == true && mounted) {
+              _provider.loadProdutos(refresh: true);
+            }
+          } catch (e) {
+            if (!mounted) return;
+            LoadingHelper.hide(context);
+            AppToast.showError(context, 'Erro ao buscar venda: $e');
+          }
+          return;
+        }
+        
+        // Se não há vendas, exibir erro
+        if (vendasResumo.isEmpty) {
+          AppToast.showError(context, 'Nenhuma venda aberta encontrada para esta mesa');
+          return;
+        }
+
+        // Se há múltiplas vendas, abrir diretamente a tela de pagamento
+        // A tela de pagamento já exibe as informações e controla o fluxo
+        
+        // Calcular saldo total de todas as vendas
+        final saldoTotal = vendasResumo.fold<double>(
+          0, 
+          (sum, v) => sum + v.saldoRestante,
+        );
+        
+        // Obter lista de IDs de todas as vendas
+        final todasVendaIds = vendasResumo
+            .where((v) => v.id != null)
+            .map((v) => v.id!)
+            .toList();
+        
+        if (todasVendaIds.isEmpty) {
+          AppToast.showError(context, 'Erro: nenhuma venda válida encontrada');
+          return;
+        }
+        
+        // Buscar primeira venda completa para usar como base na tela de pagamento
+        LoadingHelper.show(context);
+        try {
+          final primeiraVendaResponse = await servicesProvider.vendaService.getVendaById(todasVendaIds.first);
+          LoadingHelper.hide(context);
+          
+          if (!primeiraVendaResponse.success || primeiraVendaResponse.data == null) {
+            AppToast.showError(context, 'Erro ao buscar venda para pagamento');
+            return;
+          }
+          
+          final vendaBase = primeiraVendaResponse.data!;
+          
+          // Criar uma cópia da venda com saldo total atualizado
+          // A tela de pagamento mostrará o saldo total, mas ao processar usará a lista de IDs
+          final vendaParaExibicao = VendaDto(
+            id: vendaBase.id,
+            empresaId: vendaBase.empresaId,
+            mesaId: vendaBase.mesaId,
+            comandaId: vendaBase.comandaId,
+            veiculoId: vendaBase.veiculoId,
+            mesaNome: vendaBase.mesaNome,
+            comandaCodigo: vendaBase.comandaCodigo,
+            veiculoPlaca: vendaBase.veiculoPlaca,
+            contextoNome: vendaBase.contextoNome,
+            contextoDescricao: vendaBase.contextoDescricao,
+            clienteId: vendaBase.clienteId,
+            clienteNome: vendaBase.clienteNome,
+            clienteCPF: vendaBase.clienteCPF,
+            clienteCNPJ: vendaBase.clienteCNPJ,
+            status: vendaBase.status,
+            dataCriacao: vendaBase.dataCriacao,
+            dataFechamento: vendaBase.dataFechamento,
+            dataPagamento: vendaBase.dataPagamento,
+            dataCancelamento: vendaBase.dataCancelamento,
+            subtotal: vendaBase.subtotal,
+            descontoTotal: vendaBase.descontoTotal,
+            acrescimoTotal: vendaBase.acrescimoTotal,
+            impostosTotal: vendaBase.impostosTotal,
+            freteTotal: vendaBase.freteTotal,
+            valorTotal: saldoTotal + vendaBase.totalPago, // Ajustar valor total para refletir saldo total
+            pagamentos: vendaBase.pagamentos,
+            notaFiscal: vendaBase.notaFiscal,
+          );
+          
+          // Abrir tela de pagamento com lista de IDs para múltiplas vendas
+          final result = await PagamentoRestauranteScreen.show(
+            context,
+            venda: vendaParaExibicao,
+            produtosAgrupados: produtos,
+            vendaIds: todasVendaIds,
+            vendasResumo: vendasResumo,
+            onPagamentoProcessado: () {},
+            onVendaConcluida: () {
+              _provider.loadProdutos(refresh: true);
+            },
+          );
+          
+          if (result == true && mounted) {
+            _provider.loadProdutos(refresh: true);
+          }
+        } catch (e) {
+          if (!mounted) return;
+          LoadingHelper.hide(context);
+          AppToast.showError(context, 'Erro ao buscar venda: $e');
+        }
+        
+        return;
+      } catch (e) {
+        if (!mounted) return;
+        LoadingHelper.hide(context);
+        AppToast.showError(context, 'Erro ao verificar vendas: $e');
+        return;
+      }
+    }
+
+    // Para comanda específica ou quando há aba selecionada, segue fluxo normal
+    // Este fluxo funciona tanto para comandas quanto para abas de comandas dentro de uma mesa
+    var venda = _getVendaParaAcao();
 
     // Se venda é null, tenta buscar venda aberta diretamente usando método auxiliar
     if (venda == null) {
@@ -675,20 +1154,6 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
     if (venda == null) {
       AppToast.showError(context, 'Nenhuma venda encontrada');
-      return;
-    }
-
-    if (produtos.isEmpty) {
-      AppToast.showError(context, 'Nenhum produto disponível para pagamento');
-      return;
-    }
-
-    // Validação: sempre precisa ter uma aba selecionada
-    if (_provider.abaSelecionada == null) {
-      AppToast.showError(
-        context, 
-        'Selecione uma aba para realizar o pagamento.'
-      );
       return;
     }
 
@@ -733,10 +1198,13 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     }
 
     // Validação: se controle é por comanda e está na visão geral, bloqueia
+    // EXCETO se a venda for uma venda agrupada (sem ComandaId específico)
+    // Vendas agrupadas são criadas quando há múltiplas vendas na mesa e podem ser finalizadas
     if (widget.entidade.tipo == TipoEntidade.mesa && 
         _configuracaoRestaurante != null && 
         _configuracaoRestaurante!.controlePorComanda &&
-        _provider.abaSelecionada == null) {
+        _provider.abaSelecionada == null &&
+        venda.comandaId != null) { // Se venda tem ComandaId, precisa estar em aba específica
       AppToast.showError(
         context, 
         'Selecione uma comanda específica para finalizar a venda.'
@@ -772,6 +1240,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
       Navigator.of(context).pop(); // Fecha loading
 
       if (response.success && response.data != null) {
+        final vendaFinalizada = response.data!;
         AppToast.showSuccess(context, response.message ?? 'Venda finalizada com sucesso!');
         
         // Determina comandaId da venda sendo finalizada (para finalização parcial)
@@ -789,6 +1258,15 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
         debugPrint('   mesaId: $mesaIdParaEvento');
         debugPrint('   entidade.tipo: ${widget.entidade.tipo}');
         debugPrint('   entidade.id: ${widget.entidade.id}');
+        
+        // ========== IMPRESSÃO AUTOMÁTICA DA NFC-e ==========
+        // Verifica se a nota fiscal foi autorizada e imprime automaticamente
+        if (vendaFinalizada.notaFiscal != null && vendaFinalizada.notaFiscal!.foiAutorizada) {
+          debugPrint('🖨️ [DetalhesProdutosMesaScreen] NFC-e autorizada detectada. Iniciando impressão automática...');
+          _imprimirNfceAutomaticamente(vendaFinalizada.notaFiscal!.id);
+        } else {
+          debugPrint('ℹ️ [DetalhesProdutosMesaScreen] NFC-e não autorizada ou não encontrada. Situacao: ${vendaFinalizada.notaFiscal?.situacao}');
+        }
         
         // Dispara evento de venda finalizada primeiro (para outros providers/listeners)
         if (mesaIdParaEvento != null) {
@@ -853,7 +1331,10 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.receipt_long_outlined,
+                // ✅ Usa ícone de mesa vazia quando for mesa, comanda quando for comanda
+                widget.entidade.tipo == TipoEntidade.mesa
+                    ? Icons.table_restaurant_outlined
+                    : Icons.receipt_long_outlined,
                 size: 64,
                 color: Colors.grey.shade400,
               ),
@@ -1247,7 +1728,10 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.receipt_long_outlined,
+              // ✅ Usa ícone de mesa vazia quando for mesa, comanda quando for comanda
+              widget.entidade.tipo == TipoEntidade.mesa
+                  ? Icons.table_restaurant_outlined
+                  : Icons.receipt_long_outlined,
               size: 64,
               color: Colors.grey.shade400,
             ),
@@ -1338,6 +1822,46 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
       _provider.loadVendaAtual();
       _provider.loadProdutos(refresh: true);
       // Comandas são recarregadas automaticamente dentro de loadProdutos() quando controle é por comanda
+    }
+  }
+
+  /// Imprime NFC-e automaticamente após autorização
+  Future<void> _imprimirNfceAutomaticamente(String notaFiscalId) async {
+    try {
+      debugPrint('🖨️ [DetalhesProdutosMesaScreen] Buscando dados da NFC-e para impressão: $notaFiscalId');
+      
+      // Buscar dados para impressão
+      final dadosResponse = await _servicesProvider.notaFiscalService.getDadosParaImpressao(notaFiscalId);
+      
+      if (!dadosResponse.success || dadosResponse.data == null) {
+        debugPrint('⚠️ [DetalhesProdutosMesaScreen] Não foi possível obter dados para impressão: ${dadosResponse.message}');
+        return;
+      }
+      
+      final dadosNfce = dadosResponse.data!;
+      debugPrint('✅ [DetalhesProdutosMesaScreen] Dados obtidos. QR Code: ${dadosNfce.qrCodeTexto != null ? "Sim" : "Não"}');
+      
+      // Obter serviço de impressão
+      final printService = await PrintService.getInstance();
+      
+      // Imprimir NFC-e
+      debugPrint('🖨️ [DetalhesProdutosMesaScreen] Enviando para impressão...');
+      final printResult = await printService.printNfce(data: dadosNfce);
+      
+      if (printResult.success) {
+        debugPrint('✅ [DetalhesProdutosMesaScreen] NFC-e impressa com sucesso!');
+        if (mounted) {
+          AppToast.showSuccess(context, 'NFC-e impressa com sucesso!');
+        }
+      } else {
+        debugPrint('❌ [DetalhesProdutosMesaScreen] Erro ao imprimir NFC-e: ${printResult.errorMessage}');
+        if (mounted) {
+          AppToast.showError(context, 'Erro ao imprimir NFC-e: ${printResult.errorMessage ?? "Erro desconhecido"}');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ [DetalhesProdutosMesaScreen] Erro ao imprimir NFC-e automaticamente: $e');
+      // Não mostra erro para o usuário, apenas loga (impressão é opcional)
     }
   }
 }

@@ -4,13 +4,34 @@ import '../../data/models/local/item_pedido_local.dart';
 import '../../data/models/local/sync_status_pedido.dart';
 import '../../data/repositories/pedido_local_repository.dart';
 import '../../screens/pedidos/restaurante/modals/selecionar_produto_modal.dart';
+import '../../data/services/core/pedido_service.dart';
 import 'package:uuid/uuid.dart';
+
+/// Resultado da finalização do pedido
+class FinalizarPedidoResult {
+  final bool sucesso;
+  final String? pedidoId;
+  final String? pedidoRemoteId;
+  final String? vendaId;
+  final String? erro;
+  final bool foiEnviadoDireto;
+
+  FinalizarPedidoResult({
+    required this.sucesso,
+    this.pedidoId,
+    this.pedidoRemoteId,
+    this.vendaId,
+    this.erro,
+    this.foiEnviadoDireto = false,
+  });
+}
 
 /// Provider para gerenciar o pedido em construção
 /// Responsável apenas pelo gerenciamento de estado do pedido local
 class PedidoProvider extends ChangeNotifier {
   PedidoLocal? _pedidoAtual;
   final _pedidoRepo = PedidoLocalRepository();
+  PedidoService? _pedidoService; // ✅ Para enviar direto ao servidor
 
   PedidoLocal? get pedidoAtual => _pedidoAtual;
 
@@ -28,6 +49,11 @@ class PedidoProvider extends ChangeNotifier {
 
   PedidoProvider() {
     _inicializarPedido();
+  }
+
+  /// Define o PedidoService para permitir envio direto ao servidor
+  void setPedidoService(PedidoService pedidoService) {
+    _pedidoService = pedidoService;
   }
 
   /// Inicializa um novo pedido
@@ -139,11 +165,18 @@ class PedidoProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Finaliza o pedido atual e salva na base local para sincronização
-  /// Retorna o ID do pedido salvo se foi finalizado com sucesso, null caso contrário
-  Future<String?> finalizarPedido() async {
+  /// Finaliza o pedido atual
+  /// Tenta enviar direto ao servidor primeiro
+  /// Se falhar e permitirHive=true, salva no Hive para sincronização posterior
+  /// Se falhar e permitirHive=false, retorna erro (usado para balcão)
+  /// 
+  /// [permitirHive] Se true, salva no Hive em caso de falha. Se false, retorna erro.
+  Future<FinalizarPedidoResult> finalizarPedido({bool permitirHive = true}) async {
     if (_pedidoAtual == null || _pedidoAtual!.itens.isEmpty) {
-      return null;
+      return FinalizarPedidoResult(
+        sucesso: false,
+        erro: 'Pedido vazio',
+      );
     }
 
     try {
@@ -153,53 +186,138 @@ class PedidoProvider extends ChangeNotifier {
 
       debugPrint('💾 [PedidoProvider] Finalizando pedido:');
       debugPrint('  - PedidoId: ${_pedidoAtual!.id}');
-      debugPrint('  - MesaId preservado: $mesaId');
-      debugPrint('  - ComandaId preservado: $comandaId');
+      debugPrint('  - MesaId: $mesaId');
+      debugPrint('  - ComandaId: $comandaId');
+      debugPrint('  - PermitirHive: $permitirHive');
 
-      // Marca o pedido como pendente de sincronização
-      _pedidoAtual!.syncStatus = SyncStatusPedido.pendente;
-      _pedidoAtual!.syncAttempts = 0;
-      _pedidoAtual!.dataAtualizacao = DateTime.now();
+      // ✅ Tenta enviar direto ao servidor primeiro (comportamento comum)
+      if (_pedidoService != null) {
+        try {
+          debugPrint('📤 [PedidoProvider] Tentando enviar pedido direto ao servidor...');
+          
+          // Converte para DTO
+          final pedidoDto = _pedidoAtual!.toCreateDto();
+          
+          // Envia para servidor
+          final response = await _pedidoService!.createPedido(pedidoDto);
+          
+          if (response.success && response.data != null) {
+            debugPrint('✅ [PedidoProvider] Pedido enviado com sucesso ao servidor!');
+            
+            final pedidoData = response.data!;
+            final pedidoRemoteId = pedidoData['id'] as String?;
+            final vendaId = pedidoData['vendaId'] as String?;
+            
+            // Atualiza com ID remoto se retornado
+            if (pedidoRemoteId != null) {
+              _pedidoAtual!.remoteId = pedidoRemoteId;
+              _pedidoAtual!.syncStatus = SyncStatusPedido.sincronizado;
+              _pedidoAtual!.syncedAt = DateTime.now();
+            }
+            
+            // Armazena ID do pedido antes de limpar
+            final pedidoIdSalvo = _pedidoAtual!.id;
+            
+            // Limpa o pedido atual para permitir criar um novo, preservando mesa/comanda
+            _inicializarPedido(
+              mesaId: mesaId,
+              comandaId: comandaId,
+            );
+            
+            notifyListeners();
+            
+            debugPrint('📦 Pedido $pedidoIdSalvo enviado diretamente ao servidor');
+            return FinalizarPedidoResult(
+              sucesso: true,
+              pedidoId: pedidoIdSalvo,
+              pedidoRemoteId: pedidoRemoteId,
+              vendaId: vendaId,
+              foiEnviadoDireto: true,
+            );
+          } else {
+            debugPrint('⚠️ [PedidoProvider] Falha ao enviar ao servidor: ${response.message}');
+            
+            // Se não permitir Hive, retorna erro
+            if (!permitirHive) {
+              return FinalizarPedidoResult(
+                sucesso: false,
+                erro: response.message.isNotEmpty 
+                    ? response.message 
+                    : 'Erro ao enviar pedido ao servidor',
+              );
+            }
+            
+            debugPrint('💾 [PedidoProvider] Salvando no Hive como fallback...');
+            // Continua para salvar no Hive como fallback
+          }
+        } catch (e) {
+          debugPrint('❌ [PedidoProvider] Erro ao enviar ao servidor: $e');
+          
+          // Se não permitir Hive, retorna erro
+          if (!permitirHive) {
+            return FinalizarPedidoResult(
+              sucesso: false,
+              erro: 'Erro ao enviar pedido: ${e.toString()}',
+            );
+          }
+          
+          debugPrint('💾 [PedidoProvider] Salvando no Hive como fallback...');
+          // Continua para salvar no Hive como fallback
+        }
+      } else {
+        debugPrint('⚠️ [PedidoProvider] PedidoService não configurado');
+        
+        // Se não permitir Hive e não tem serviço, retorna erro
+        if (!permitirHive) {
+          return FinalizarPedidoResult(
+            sucesso: false,
+            erro: 'Serviço de pedidos não configurado',
+          );
+        }
+      }
 
-      // Salva na base local
-      debugPrint('💾 [PedidoProvider] Salvando pedido no Hive:');
-      debugPrint('  - PedidoId: ${_pedidoAtual!.id}');
-      debugPrint('  - MesaId ANTES do upsert: ${_pedidoAtual!.mesaId}');
-      debugPrint('  - ComandaId ANTES do upsert: ${_pedidoAtual!.comandaId}');
-      
-      await _pedidoRepo.upsert(_pedidoAtual!);
-      
-      // Verificar se foi salvo corretamente lendo de volta
-      final pedidos = await _pedidoRepo.getAll();
-      final pedidoSalvo = pedidos.firstWhere(
-        (p) => p.id == _pedidoAtual!.id,
-        orElse: () => throw Exception('Pedido não encontrado após salvar'),
+      // Fallback: Salva no Hive (só se permitirHive=true)
+      if (permitirHive) {
+        debugPrint('💾 [PedidoProvider] Salvando pedido no Hive:');
+        debugPrint('  - PedidoId: ${_pedidoAtual!.id}');
+        
+        // Marca o pedido como pendente de sincronização
+        _pedidoAtual!.syncStatus = SyncStatusPedido.pendente;
+        _pedidoAtual!.syncAttempts = 0;
+        _pedidoAtual!.dataAtualizacao = DateTime.now();
+        
+        await _pedidoRepo.upsert(_pedidoAtual!);
+        
+        // Armazena ID do pedido antes de limpar
+        final pedidoIdSalvo = _pedidoAtual!.id;
+        
+        // Limpa o pedido atual para permitir criar um novo, preservando mesa/comanda
+        _inicializarPedido(
+          mesaId: mesaId,
+          comandaId: comandaId,
+        );
+
+        notifyListeners();
+        
+        debugPrint('📦 Pedido $pedidoIdSalvo salvo no Hive para sincronização');
+        return FinalizarPedidoResult(
+          sucesso: true,
+          pedidoId: pedidoIdSalvo,
+          foiEnviadoDireto: false,
+        );
+      }
+
+      // Não deveria chegar aqui, mas por segurança
+      return FinalizarPedidoResult(
+        sucesso: false,
+        erro: 'Erro desconhecido ao finalizar pedido',
       );
-      
-      debugPrint('💾 [PedidoProvider] Pedido lido do Hive após salvar:');
-      debugPrint('  - PedidoId: ${pedidoSalvo.id}');
-      debugPrint('  - MesaId APÓS ler do Hive: ${pedidoSalvo.mesaId}');
-      debugPrint('  - ComandaId APÓS ler do Hive: ${pedidoSalvo.comandaId}');
-      
-      // Armazena ID do pedido antes de limpar
-      final pedidoIdSalvo = _pedidoAtual!.id;
-      
-      // O evento pedidoCriado será disparado pelo AutoSyncManager quando detectar
-      // a mudança no Hive, garantindo que o pedido já está salvo
-
-      // Limpa o pedido atual para permitir criar um novo, preservando mesa/comanda
-      _inicializarPedido(
-        mesaId: mesaId,
-        comandaId: comandaId,
-      );
-
-      notifyListeners();
-      
-      debugPrint('📦 Pedido $pedidoIdSalvo salvo localmente');
-      return pedidoIdSalvo;
     } catch (e) {
-      debugPrint('Erro ao finalizar pedido: $e');
-      return null;
+      debugPrint('❌ Erro ao finalizar pedido: $e');
+      return FinalizarPedidoResult(
+        sucesso: false,
+        erro: e.toString(),
+      );
     }
   }
 

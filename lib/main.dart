@@ -12,11 +12,13 @@ import 'presentation/providers/services_provider.dart';
 import 'presentation/providers/sync_provider.dart';
 import 'presentation/providers/pedido_provider.dart';
 import 'presentation/providers/venda_balcao_provider.dart';
+import 'presentation/providers/payment_flow_provider.dart'; // 🆕 Import do PaymentFlowProvider
 import 'core/theme/app_theme.dart';
 import 'core/adaptive_layout/adaptive_layout.dart';
 import 'screens/splash/splash_screen.dart';
 import 'presentation/screens/server_config/server_config_screen.dart';
 import 'core/payment/payment_service.dart';
+import 'core/config/flavor_config.dart';
 import 'package:flutter/foundation.dart';
 
 // NavigatorKey global para acessar context em qualquer lugar
@@ -91,6 +93,11 @@ Future<void> initializeApp() async {
     );
     debugPrint('✅ [INIT] SystemChrome configurado');
     
+    // Inicializa FlavorConfig primeiro (para detectar o flavor correto)
+    debugPrint('🔍 [INIT] Inicializando FlavorConfig...');
+    await FlavorConfig.detectFlavorAsync();
+    debugPrint('✅ [INIT] Flavor detectado: ${FlavorConfig.currentFlavor}');
+    
     // Inicializa serviços
     debugPrint('📦 [INIT] Inicializando PreferencesService...');
     await PreferencesService.init();
@@ -142,13 +149,14 @@ Future<void> initializeApp() async {
     
     // Configura PaymentService
     debugPrint('💳 [INIT] Configurando PaymentService...');
-    await PaymentService.getInstance();
+    final paymentService = await PaymentService.getInstance();
     debugPrint('✅ [INIT] PaymentService configurado');
     
     debugPrint('🎨 [INIT] Iniciando app principal...');
     runApp(
       MXCloudPDVApp(
         authService: authService,
+        paymentService: paymentService, // 🆕 Passa PaymentService para o app
       ),
     );
     debugPrint('✅ [INIT] App iniciado com sucesso!');
@@ -161,10 +169,12 @@ Future<void> initializeApp() async {
 
 class MXCloudPDVApp extends StatelessWidget {
   final AuthService authService;
+  final PaymentService paymentService; // 🆕 PaymentService para criar PaymentFlowProvider
 
   const MXCloudPDVApp({
     super.key,
     required this.authService,
+    required this.paymentService, // 🆕 Novo parâmetro
   });
 
   @override
@@ -186,11 +196,22 @@ class MXCloudPDVApp extends StatelessWidget {
           create: (_) => servicesProvider.syncProvider,
           update: (_, services, __) => services.syncProvider,
         ),
-        ChangeNotifierProvider(
+        ChangeNotifierProxyProvider<ServicesProvider, PedidoProvider>(
           create: (_) => PedidoProvider(),
+          update: (_, services, previous) {
+            final provider = previous ?? PedidoProvider();
+            // ✅ Configura PedidoService no PedidoProvider para permitir envio direto ao servidor
+            provider.setPedidoService(services.pedidoService);
+            return provider;
+          },
         ),
         ChangeNotifierProvider(
           create: (_) => VendaBalcaoProvider(),
+        ),
+        // 🆕 Provider para gerenciar fluxo de pagamento
+        // PaymentService já foi inicializado no initializeApp() e passado para o app
+        ChangeNotifierProvider(
+          create: (_) => PaymentFlowProvider(paymentService),
         ),
       ],
       child: MaterialApp(

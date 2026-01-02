@@ -1,4 +1,5 @@
 import 'print_data.dart';
+import 'nfce_print_data.dart';
 
 /// Interface base para providers de impressão
 abstract class PrintProvider {
@@ -13,6 +14,9 @@ abstract class PrintProvider {
   
   /// Imprime uma comanda (cada provider formata como seu SDK precisa)
   Future<PrintResult> printComanda(PrintData data);
+  
+  /// Imprime uma NFC-e (cada provider formata como seu SDK precisa)
+  Future<PrintResult> printNfce(NfcePrintData data);
   
   /// Verifica status da impressora
   Future<bool> checkPrinterStatus();

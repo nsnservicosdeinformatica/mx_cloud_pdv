@@ -63,6 +63,7 @@ class ProdutoVariacaoAtributoValorDto {
 
 /// DTO simplificado para item de pedido no PDV
 class ItemPedidoPdvDto {
+  final String id;
   final String produtoId;
   final String produtoNome;
   final String? produtoVariacaoId;
@@ -72,6 +73,7 @@ class ItemPedidoPdvDto {
   final List<ProdutoVariacaoAtributoValorDto> variacaoAtributosValores;
 
   ItemPedidoPdvDto({
+    required this.id,
     required this.produtoId,
     required this.produtoNome,
     this.produtoVariacaoId,
@@ -82,6 +84,10 @@ class ItemPedidoPdvDto {
   });
 
   factory ItemPedidoPdvDto.fromJson(Map<String, dynamic> json) {
+    // ID do item (obrigatório para operações de edição/exclusão)
+    final idValue = json['id'];
+    final id = idValue is String ? idValue : idValue?.toString() ?? '';
+
     final produtoIdValue = json['produtoId'];
     final produtoId = produtoIdValue is String
         ? produtoIdValue
@@ -115,6 +121,7 @@ class ItemPedidoPdvDto {
         .toList();
 
     return ItemPedidoPdvDto(
+      id: id,
       produtoId: produtoId,
       produtoNome: produtoNome,
       produtoVariacaoId: produtoVariacaoId,

@@ -4,6 +4,15 @@ enum TipoEntidade {
   comanda,
 }
 
+/// Tipo de visualização dos dados (produtos agrupados ou por pedido)
+enum TipoVisualizacao {
+  /// Visualização atual: produtos agrupados (resumo)
+  agrupado,
+  
+  /// Nova visualização: lista de pedidos com seus itens
+  porPedido,
+}
+
 /// Informações básicas de uma mesa ou comanda no restaurante
 class MesaComandaInfo {
   final String id;

@@ -4,6 +4,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/config/server_config_service.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/providers/services_provider.dart';
 import '../../data/models/home/home_widget_type.dart';
@@ -13,8 +15,6 @@ import '../../data/repositories/home_widget_config_repository.dart';
 import '../../data/repositories/pedido_local_repository.dart';
 import '../../data/models/local/pedido_local.dart';
 import '../../data/models/local/sync_status_pedido.dart';
-import '../../widgets/home/draggable_resizable_widget.dart';
-import '../../widgets/home/grid_layout_manager.dart';
 import '../sync/sync_dialog.dart';
 import '../pedidos/pedidos_sync_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart';
@@ -27,7 +27,12 @@ import '../profile/profile_screen.dart';
 
 /// Tela de home unificada e personalizável
 class HomeUnifiedScreen extends StatefulWidget {
-  const HomeUnifiedScreen({super.key});
+  final ValueNotifier<int>? navigationIndexNotifier;
+  
+  const HomeUnifiedScreen({
+    super.key,
+    this.navigationIndexNotifier,
+  });
 
   @override
   State<HomeUnifiedScreen> createState() => _HomeUnifiedScreenState();
@@ -38,9 +43,7 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
   final _pedidoRepo = PedidoLocalRepository();
   int? _setor;
   bool _isLoading = true;
-  bool _isEditing = false;
   bool _isAbrindoNovoPedido = false; // Proteção contra múltiplos cliques
-  final GlobalKey _containerKey = GlobalKey();
 
   @override
   void initState() {
@@ -85,6 +88,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     }
   }
 
+  // Método será usado na próxima etapa quando implementarmos o novo layout
+  // ignore: unused_element
   void _handleWidgetTap(HomeWidgetType type) {
     switch (type) {
       case HomeWidgetType.sincronizarProdutos:
@@ -201,7 +206,23 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     }
   }
 
-  void _mostrarDialogSincronizacao() {
+  Future<void> _mostrarDialogSincronizacao() async {
+    // Mostra dialog de confirmação primeiro
+    final confirmado = await AppDialog.showConfirm(
+      context: context,
+      title: 'Confirmar Sincronização',
+      message: 'A sincronização irá atualizar os preços e produtos no dispositivo. '
+          'Esta ação pode alterar os valores dos produtos cadastrados.\n\n'
+          'Deseja continuar?',
+      confirmText: 'Sincronizar',
+      cancelText: 'Cancelar',
+      icon: Icons.sync,
+      iconColor: const Color(0xFF0284C7),
+      confirmColor: const Color(0xFF0284C7),
+    );
+
+    // Se o usuário confirmou, inicia a sincronização
+    if (confirmado == true && mounted) {
     final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
     final syncProvider = servicesProvider.syncProvider;
     
@@ -210,8 +231,11 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
       barrierDismissible: false,
       builder: (context) => SyncDialog(syncProvider: syncProvider),
     );
+    }
   }
 
+  // Método será usado na próxima etapa quando implementarmos o novo layout
+  // ignore: unused_element
   int? _getBadgeCount(HomeWidgetType type) {
     if (type == HomeWidgetType.sincronizarVendas) {
       if (!Hive.isBoxOpen(PedidoLocalRepository.boxName)) {
@@ -236,8 +260,7 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
-        child: FutureBuilder<void>(
+      body: FutureBuilder<void>(
           future: _configRepo.initializeDefaultConfig(_setor),
           builder: (context, snapshot) {
             if (!Hive.isBoxOpen(HomeWidgetConfigRepository.boxName)) {
@@ -281,305 +304,269 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
                   );
                 }
 
-                return Column(
-                  children: [
-                    // Header com botão de edição e configuração
-                    Padding(
-                      padding: EdgeInsets.all(adaptive.isMobile ? 16 : adaptive.getPadding()),
-                      child: Row(
-                        children: [
-                          Expanded(child: _buildHeader(context, adaptive)),
-                          // Botão de arranjo automático (só aparece quando está editando)
-                          if (_isEditing)
-                            IconButton(
-                              icon: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primaryColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: AppTheme.primaryColor.withOpacity(0.2),
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.auto_awesome,
-                                  color: AppTheme.primaryColor,
-                                  size: 20,
-                                ),
-                              ),
-                              onPressed: () {
-                                // Obtém o tamanho disponível do LayoutBuilder
-                                final renderBox = _containerKey.currentContext?.findRenderObject() as RenderBox?;
-                                if (renderBox != null) {
-                                  final size = renderBox.size;
-                                  _arrangeWidgetsAutomatically(configs, size.width, size.height);
-                                }
-                              },
-                              tooltip: 'Arranjo automático',
-                            ),
-                          if (_isEditing) const SizedBox(width: 8),
-                          // Botão de editar layout
-                          IconButton(
-                            icon: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: _isEditing 
-                                    ? AppTheme.primaryColor 
-                                    : AppTheme.primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppTheme.primaryColor.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Icon(
-                                _isEditing ? Icons.check : Icons.edit,
-                                color: _isEditing ? Colors.white : AppTheme.primaryColor,
-                                size: 20,
-                              ),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isEditing = !_isEditing;
-                              });
-                            },
-                            tooltip: _isEditing ? 'Finalizar edição' : 'Editar layout',
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Área de widgets com grid automático e scroll
-                    Expanded(
-                      child: LayoutBuilder(
-                        key: _containerKey,
-                        builder: (context, constraints) {
-                          // Usa um tamanho base fixo para o grid (evita mudanças durante movimento)
-                          const baseCanvasWidth = 1200.0;
-                          const baseCanvasHeight = 800.0;
-                          
-                          // Usa o tamanho disponível da viewport como referência
-                          final availableWidth = constraints.maxWidth.isFinite && constraints.maxWidth > 0 
-                              ? constraints.maxWidth 
-                              : baseCanvasWidth;
-                          final availableHeight = constraints.maxHeight.isFinite && constraints.maxHeight > 0 
-                              ? constraints.maxHeight 
-                              : baseCanvasHeight;
-                          
-                          // Calcula tamanho dinâmico do canvas baseado nas posições dos widgets
-                          // As posições são em porcentagem (0.0 a 1.0)
-                          double maxRight = 0;
-                          double maxBottom = 0;
-                          const padding = 100.0; // Padding menor para evitar espaço desnecessário
-                          
-                          // Calcula posições máximas dos widgets
-                          if (configs.isNotEmpty) {
-                            for (final config in configs) {
-                              final position = config.positionOrDefault;
-                              // Posições são em porcentagem, então x + width dá a posição final em %
-                              final right = position.x + position.width;
-                              final bottom = position.y + position.height;
-                              if (right > maxRight) maxRight = right;
-                              if (bottom > maxBottom) maxBottom = bottom;
-                            }
-                          }
-                          
-                          // Converte de porcentagem para pixels usando o tamanho base fixo
-                          // Isso garante que o grid seja estável
-                          final requiredWidth = maxRight * baseCanvasWidth;
-                          final requiredHeight = maxBottom * baseCanvasHeight;
-                          
-                          // Se todos os widgets cabem na viewport, usa exatamente o tamanho disponível
-                          // Caso contrário, adiciona padding para permitir movimento
-                          final canvasWidth = configs.isNotEmpty 
-                              ? (requiredWidth <= availableWidth 
-                                  ? availableWidth 
-                                  : requiredWidth + padding)
-                              : availableWidth;
-                          final canvasHeight = configs.isNotEmpty
-                              ? (requiredHeight <= availableHeight 
-                                  ? availableHeight 
-                                  : requiredHeight + padding)
-                              : availableHeight;
-                          
-                          // Define grid de 12 colunas com tamanho de célula fixo
-                          // Usa o tamanho base para manter estabilidade - NUNCA muda
-                          const gridColumns = 12;
-                          const cellWidth = baseCanvasWidth / gridColumns; // Tamanho fixo baseado no canvas base
-                          const cellHeight = 100.0;
-                          final gridRows = (baseCanvasHeight / cellHeight).ceil(); // Fixo baseado no tamanho base
-                          
-                          final gridManager = GridLayoutManager(
-                            columns: gridColumns,
-                            rows: gridRows,
-                            cellWidth: cellWidth,
-                            cellHeight: cellHeight,
-                          );
-
-                          // Container com tamanho dinâmico para o canvas
-                          // Mas usa tamanho base para conversões de grid
-                          final canvasSize = Size(canvasWidth, canvasHeight);
-                          final baseCanvasSize = Size(baseCanvasWidth, baseCanvasHeight);
-
-                          return SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.vertical,
-                              child: SizedBox(
-                                width: canvasWidth,
-                                height: canvasHeight,
-                                child: Stack(
-                                  children: configs.asMap().entries.map((entry) {
-                                    final index = entry.key;
-                                    final config = entry.value;
-                                    final badgeCount = _getBadgeCount(config.type);
-                                    return DraggableResizableWidget(
-                                      config: config,
-                                      badgeCount: badgeCount,
-                                      onTap: () => _handleWidgetTap(config.type),
-                                      onPositionChanged: (newPosition) {
-                                        _updateWidgetPosition(config.type, newPosition);
-                                      },
-                                      isEditing: _isEditing,
-                                      parentSize: canvasSize,
-                                      baseSize: baseCanvasSize,
-                                      gridManager: gridManager,
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
+              // Grid de botões funcionais - preenche 100% da tela até o bottom navigation
+              return _buildFunctionalButtonsGrid(context, adaptive, servicesProvider);
                   },
                 );
               },
             );
           },
-        ),
       ),
     );
   }
 
-  Future<void> _updateWidgetPosition(
-    HomeWidgetType changedType,
-    HomeWidgetPosition newPosition,
-  ) async {
-    // Apenas atualiza a posição do widget que foi movido
-    // Não tenta reorganizar outros widgets - deixa livre para o usuário posicionar como quiser
-    if (!Hive.isBoxOpen(HomeWidgetConfigRepository.boxName)) return;
-    
-    final box = Hive.box<HomeWidgetUserConfig>(HomeWidgetConfigRepository.boxName);
-    final config = box.get(changedType.index);
-    
-    if (config != null) {
-      await _configRepo.updateConfig(
-        config.copyWith(position: newPosition),
-      );
-    }
-  }
-
-  Future<void> _arrangeWidgetsAutomatically(
-    List<HomeWidgetUserConfig> configs,
-    double availableWidth,
-    double availableHeight,
-  ) async {
-    if (configs.isEmpty) return;
-    
-    const baseCanvasWidth = 1200.0;
-    const baseCanvasHeight = 800.0;
-    const margin = 4.0;
-    const padding = 16.0;
-    
-    // Calcula quantas colunas cabem na tela (baseado no tamanho médio dos widgets)
-    // Assumindo widgets médios de ~200px de largura
-    final widgetWidth = 200.0;
-    final cols = ((availableWidth - padding * 2) / (widgetWidth + margin * 2)).floor().clamp(1, 12);
-    
-    // Calcula altura padrão dos widgets
-    final widgetHeight = 140.0;
-    final rowHeight = widgetHeight + margin * 2;
-    
-    // Organiza os widgets em grid
-    for (int i = 0; i < configs.length; i++) {
-      final row = (i / cols).floor();
-      final col = i % cols;
-      
-      // Calcula posição em porcentagem do canvas base
-      final x = (col * (widgetWidth + margin * 2) + padding) / baseCanvasWidth;
-      final y = (row * rowHeight + padding) / baseCanvasHeight;
-      final width = widgetWidth / baseCanvasWidth;
-      final height = widgetHeight / baseCanvasHeight;
-      
-      final newPosition = HomeWidgetPosition(
-        x: x.clamp(0.0, 1.0),
-        y: y.clamp(0.0, 1.0),
-        width: width.clamp(0.05, 1.0),
-        height: height.clamp(0.05, 1.0),
-      );
-      
-      await _configRepo.updateConfig(
-        configs[i].copyWith(position: newPosition),
-      );
-    }
-  }
 
 
-  Widget _buildHeader(BuildContext context, AdaptiveLayoutProvider adaptive) {
-    return Row(
-      children: [
-        Container(
-          padding: EdgeInsets.all(adaptive.isMobile ? 12 : 16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.primaryColor.withOpacity(0.15),
-                AppTheme.primaryColor.withOpacity(0.05),
-              ],
+  Widget _buildFunctionalButtonsGrid(
+    BuildContext context,
+    AdaptiveLayoutProvider adaptive,
+    ServicesProvider servicesProvider,
+  ) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final syncProvider = servicesProvider.syncProvider;
+    final user = authProvider.user;
+    final vendasPendentes = _getBadgeCount(HomeWidgetType.sincronizarVendas) ?? 0;
+    final ultimaSync = syncProvider.ultimaSincronizacao;
+    final serverUrl = ServerConfigService.getServerUrl() ?? 'Não configurado';
+    final serverStatus = ServerConfigService.isConfigured() ? 'Conectado' : 'Desconectado';
+
+    // Lista de botões funcionais
+    final buttons = [
+      _ButtonData(
+        title: 'Sincronização de Dados',
+        icon: Icons.sync,
+        color: const Color(0xFF0284C7), // Azul
+        subtitle: ultimaSync != null
+            ? 'Última sync: ${_formatDate(ultimaSync)}'
+            : 'Nunca sincronizado',
+        onTap: _mostrarDialogSincronizacao,
+      ),
+      _ButtonData(
+        title: 'Vendas Pendentes',
+        icon: Icons.pending_actions,
+        color: const Color(0xFFDC2626), // Vermelho
+        subtitle: vendasPendentes > 0
+            ? '$vendasPendentes ${vendasPendentes == 1 ? 'venda pendente' : 'vendas pendentes'}'
+            : 'Todas sincronizadas',
+        badge: vendasPendentes > 0 ? vendasPendentes : null,
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const PedidosSyncScreen(),
             ),
-            borderRadius: BorderRadius.circular(adaptive.isMobile ? 14 : 16),
+          );
+        },
+      ),
+      _ButtonData(
+        title: 'Impressoras',
+        icon: Icons.print,
+        color: const Color(0xFF7C3AED), // Roxo
+        subtitle: 'Gerenciar impressoras',
+        onTap: () {},
+      ),
+      _ButtonData(
+        title: 'Configuração do Servidor',
+        icon: Icons.settings,
+        color: const Color(0xFF059669), // Verde
+        subtitle: '$serverUrl\nStatus: $serverStatus',
+        status: serverStatus == 'Conectado',
+        onTap: () {},
+      ),
+      _ButtonData(
+        title: 'Vendas Recentes',
+        icon: Icons.receipt_long,
+        color: const Color(0xFFD97706), // Amber
+        subtitle: 'Visualizar vendas recentes',
+        onTap: () {},
+      ),
+      _ButtonData(
+        title: 'Usuário Logado',
+        icon: Icons.person,
+        color: const Color(0xFF4F46E5), // Indigo
+        subtitle: user?.name ?? 'Não identificado',
+        onTap: () {
+          // Navega para perfil usando uma rota que mantém o bottom navigation visível
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => AdaptiveLayout(
+                child: const ProfileScreen(),
+              ),
+              fullscreenDialog: false,
+            ),
+          );
+        },
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calcula número de colunas baseado no tamanho da tela
+        final screenWidth = constraints.maxWidth;
+        int columns;
+        if (screenWidth < 600) {
+          columns = 2; // Mobile: 2 colunas
+        } else if (screenWidth < 1200) {
+          columns = 3; // Tablet: 3 colunas
+        } else {
+          columns = 3; // Desktop: 3 colunas
+        }
+
+        // Calcula número de linhas necessárias
+        final rows = (buttons.length / columns).ceil();
+        
+        // Calcula altura disponível e ajusta aspect ratio para ocupar 100%
+        final availableHeight = constraints.maxHeight;
+        final buttonHeight = availableHeight / rows;
+        final buttonWidth = screenWidth / columns;
+        final aspectRatio = buttonWidth / buttonHeight;
+
+        return GridView.builder(
+          padding: EdgeInsets.zero, // Sem margem
+          physics: const NeverScrollableScrollPhysics(), // Desabilita scroll
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            childAspectRatio: aspectRatio, // Calculado dinamicamente para ocupar 100% da altura
+            crossAxisSpacing: 0, // Sem espaçamento
+            mainAxisSpacing: 0, // Sem espaçamento
+          ),
+          itemCount: buttons.length,
+          itemBuilder: (context, index) {
+            return _buildFunctionalButton(buttons[index], adaptive);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFunctionalButton(_ButtonData button, AdaptiveLayoutProvider adaptive) {
+    return Material(
+      color: button.color,
+      child: InkWell(
+        onTap: button.onTap,
+        child: Container(
+          padding: EdgeInsets.all(adaptive.isMobile ? 16 : 24),
+          decoration: BoxDecoration(
+            color: button.color,
             border: Border.all(
-              color: AppTheme.primaryColor.withOpacity(0.2),
+              color: Colors.white.withOpacity(0.1),
               width: 1,
             ),
           ),
-          child: Icon(
-            Icons.dashboard,
-            color: AppTheme.primaryColor,
-            size: adaptive.isMobile ? 28 : 32,
-          ),
-        ),
-        SizedBox(width: adaptive.isMobile ? 12 : 16),
-        Expanded(
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Painel Principal',
-                style: GoogleFonts.inter(
-                  fontSize: adaptive.isMobile ? 20 : 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                ),
+              // Ícone e badge
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(
+                    button.icon,
+                    color: Colors.white,
+                    size: adaptive.isMobile ? 32 : 40,
+                  ),
+                  if (button.badge != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${button.badge}',
+                        style: GoogleFonts.inter(
+                          color: button.color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  if (button.status != null)
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: button.status! ? Colors.green : Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
               ),
-              SizedBox(height: adaptive.isMobile ? 2 : 4),
+              const SizedBox(height: 12),
+              // Título
               Text(
-                'Acesso rápido às principais funcionalidades',
+                button.title,
                 style: GoogleFonts.inter(
-                  fontSize: adaptive.isMobile ? 13 : 14,
+                  color: Colors.white,
+                  fontSize: adaptive.isMobile ? 16 : 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 8),
+              // Subtítulo
+              Expanded(
+                child: Text(
+                  button.subtitle,
+                style: GoogleFonts.inter(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: adaptive.isMobile ? 12 : 14,
                   fontWeight: FontWeight.w500,
-                  color: AppTheme.textSecondary,
+                    height: 1.3,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      if (difference.inHours == 0) {
+        if (difference.inMinutes == 0) {
+          return 'Agora';
+        }
+        return '${difference.inMinutes}min atrás';
+      }
+      return '${difference.inHours}h atrás';
+    } else if (difference.inDays == 1) {
+      return 'Ontem';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d atrás';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
+    }
+  }
+
+}
+
+/// Classe auxiliar para dados dos botões funcionais
+class _ButtonData {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final String subtitle;
+  final int? badge;
+  final bool? status; // true = conectado, false = desconectado
+  final VoidCallback onTap;
+
+  _ButtonData({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.subtitle,
+    this.badge,
+    this.status,
+    required this.onTap,
+  });
 }
 

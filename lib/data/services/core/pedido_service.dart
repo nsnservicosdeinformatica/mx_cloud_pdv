@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../../models/core/pedido_list_item.dart';
 import '../../models/core/pedido_com_itens_pdv_dto.dart';
 import '../../models/core/pedidos_com_venda_comandas_dto.dart';
+import '../../models/core/pedido_operacoes_dto.dart';
 import '../../../core/network/api_client.dart';
 import '../../models/core/api_response.dart';
 import '../../../core/network/endpoints.dart';
@@ -394,6 +395,192 @@ class PedidoService {
     } catch (e) {
       return ApiResponse<Map<String, dynamic>>.error(
         message: 'Erro ao criar pedido: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Atualiza um item de pedido
+  Future<ApiResponse<Map<String, dynamic>>> atualizarItem(
+    String pedidoId,
+    String itemId,
+    UpdateItemPedidoDto dto,
+  ) async {
+    try {
+      debugPrint('✏️ Atualizando item $itemId do pedido $pedidoId');
+      final response = await apiClient.put<Map<String, dynamic>>(
+        ApiEndpoints.pedidoItem(pedidoId, itemId),
+        data: dto.toJson(),
+      );
+
+      if (response.data == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: 'Resposta vazia do servidor',
+        );
+      }
+
+      final data = response.data!;
+
+      // Verifica se houve erro na resposta
+      if (data['success'] == false) {
+        final mensagem = data['message'] as String? ?? 'Erro ao atualizar item';
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: mensagem,
+        );
+      }
+
+      final pedidoData = data['data'] as Map<String, dynamic>?;
+
+      if (pedidoData == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: data['message'] as String? ?? 'Erro ao atualizar item',
+        );
+      }
+
+      debugPrint('✅ Item atualizado com sucesso');
+      return ApiResponse<Map<String, dynamic>>.success(
+        data: pedidoData,
+        message: data['message'] as String? ?? 'Item atualizado com sucesso',
+      );
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar item: $e');
+      return ApiResponse<Map<String, dynamic>>.error(
+        message: 'Erro ao atualizar item: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Cancela um item de pedido
+  Future<ApiResponse<Map<String, dynamic>>> cancelarItem(
+    String pedidoId,
+    String itemId,
+    CancelarItemPedidoDto dto,
+  ) async {
+    try {
+      debugPrint('🚫 Cancelando item $itemId do pedido $pedidoId');
+      final response = await apiClient.post<Map<String, dynamic>>(
+        ApiEndpoints.cancelarItem(pedidoId, itemId),
+        data: dto.toJson(),
+      );
+
+      if (response.data == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: 'Resposta vazia do servidor',
+        );
+      }
+
+      final data = response.data!;
+
+      // Verifica se houve erro na resposta
+      if (data['success'] == false) {
+        final mensagem = data['message'] as String? ?? 'Erro ao cancelar item';
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: mensagem,
+        );
+      }
+
+      final pedidoData = data['data'] as Map<String, dynamic>?;
+
+      if (pedidoData == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: data['message'] as String? ?? 'Erro ao cancelar item',
+        );
+      }
+
+      debugPrint('✅ Item cancelado com sucesso');
+      return ApiResponse<Map<String, dynamic>>.success(
+        data: pedidoData,
+        message: data['message'] as String? ?? 'Item cancelado com sucesso',
+      );
+    } catch (e) {
+      debugPrint('❌ Erro ao cancelar item: $e');
+      return ApiResponse<Map<String, dynamic>>.error(
+        message: 'Erro ao cancelar item: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Deleta um pedido (soft delete)
+  Future<ApiResponse<void>> deletarPedido(String pedidoId) async {
+    try {
+      debugPrint('🗑️ Deletando pedido $pedidoId');
+      final response = await apiClient.delete<Map<String, dynamic>>(
+        ApiEndpoints.pedidoById(pedidoId),
+      );
+
+      if (response.data == null) {
+        return ApiResponse<void>.error(
+          message: 'Resposta vazia do servidor',
+        );
+      }
+
+      final data = response.data!;
+
+      // Verifica se houve erro na resposta
+      if (data['success'] == false) {
+        final mensagem = data['message'] as String? ?? 'Erro ao deletar pedido';
+        return ApiResponse<void>.error(
+          message: mensagem,
+        );
+      }
+
+      debugPrint('✅ Pedido deletado com sucesso');
+      return ApiResponse<void>.success(
+        data: null,
+        message: data['message'] as String? ?? 'Pedido removido com sucesso',
+      );
+    } catch (e) {
+      debugPrint('❌ Erro ao deletar pedido: $e');
+      return ApiResponse<void>.error(
+        message: 'Erro ao deletar pedido: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Cancela um pedido
+  Future<ApiResponse<Map<String, dynamic>>> cancelarPedido(
+    String pedidoId,
+    CancelarPedidoDto dto,
+  ) async {
+    try {
+      debugPrint('🚫 Cancelando pedido $pedidoId');
+      final response = await apiClient.post<Map<String, dynamic>>(
+        ApiEndpoints.cancelarPedido(pedidoId),
+        data: dto.toJson(),
+      );
+
+      if (response.data == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: 'Resposta vazia do servidor',
+        );
+      }
+
+      final data = response.data!;
+
+      // Verifica se houve erro na resposta
+      if (data['success'] == false) {
+        final mensagem = data['message'] as String? ?? 'Erro ao cancelar pedido';
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: mensagem,
+        );
+      }
+
+      final pedidoData = data['data'] as Map<String, dynamic>?;
+
+      if (pedidoData == null) {
+        return ApiResponse<Map<String, dynamic>>.error(
+          message: data['message'] as String? ?? 'Erro ao cancelar pedido',
+        );
+      }
+
+      debugPrint('✅ Pedido cancelado com sucesso');
+      return ApiResponse<Map<String, dynamic>>.success(
+        data: pedidoData,
+        message: data['message'] as String? ?? 'Pedido cancelado com sucesso',
+      );
+    } catch (e) {
+      debugPrint('❌ Erro ao cancelar pedido: $e');
+      return ApiResponse<Map<String, dynamic>>.error(
+        message: 'Erro ao cancelar pedido: ${e.toString()}',
       );
     }
   }

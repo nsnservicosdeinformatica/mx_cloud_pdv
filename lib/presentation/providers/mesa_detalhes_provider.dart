@@ -4,7 +4,7 @@ import '../../data/models/core/produto_agrupado.dart';
 import '../../data/models/core/vendas/venda_dto.dart';
 import '../../data/models/core/vendas/pagamento_venda_dto.dart';
 import '../../models/mesas/comanda_com_produtos.dart';
-import '../../models/mesas/entidade_produtos.dart' show TipoEntidade, MesaComandaInfo;
+import '../../models/mesas/entidade_produtos.dart' show TipoEntidade, TipoVisualizacao, MesaComandaInfo;
 import '../../data/services/core/pedido_service.dart';
 import '../../data/services/core/venda_service.dart';
 import '../../data/services/modules/restaurante/mesa_service.dart';
@@ -53,6 +53,12 @@ class MesaDetalhesProvider extends ChangeNotifier {
   bool _isLoading = true;
   bool _carregandoProdutos = false;
   String? _errorMessage;
+
+  // Estado de pedidos (para visualização por pedido)
+  List<PedidoComItensPdvDto> _pedidos = [];
+  
+  // Tipo de visualização ativa
+  TipoVisualizacao _tipoVisualizacao = TipoVisualizacao.agrupado;
 
   // Estado de venda
   VendaDto? _vendaAtual;
@@ -103,6 +109,10 @@ class MesaDetalhesProvider extends ChangeNotifier {
   Map<String, VendaDto?> get vendasPorComanda => _vendasPorComanda;
   bool get historicoPagamentosExpandido => _historicoPagamentosExpandido;
   String? get statusMesa => _statusMesa;
+  
+  // Getters de pedidos e visualização
+  List<PedidoComItensPdvDto> get pedidos => _pedidos;
+  TipoVisualizacao get tipoVisualizacao => _tipoVisualizacao;
   
   // Getters de status de sincronização
   int get pedidosPendentes => _pedidosPendentes;
@@ -212,6 +222,42 @@ class MesaDetalhesProvider extends ChangeNotifier {
     }
     // Caso contrário, retorna venda da comanda específica
     return _vendasPorComanda[_abaSelecionada];
+  }
+
+  /// Retorna os pedidos para ação (da aba selecionada)
+  /// null = "Mesa" (venda integral - todos os pedidos)
+  /// comandaId = pedidos da comanda específica
+  /// "_SEM_COMANDA" = apenas pedidos sem comanda
+  List<PedidoComItensPdvDto> getPedidosParaAcao() {
+    // Se entidade é comanda (não mesa), retorna pedidos filtrados por comanda
+    if (entidade.tipo == TipoEntidade.comanda) {
+      return _pedidos.where((p) => p.comandaId == entidade.id).toList()
+        ..sort((a, b) => b.numero.compareTo(a.numero)); // Mais recente primeiro
+    }
+    
+    // Se aba selecionada é null, retorna TODOS os pedidos (venda integral)
+    if (_abaSelecionada == null) {
+      return List.from(_pedidos)
+        ..sort((a, b) => b.numero.compareTo(a.numero)); // Mais recente primeiro
+    }
+    
+    // Se é "_SEM_COMANDA", retorna apenas pedidos sem comanda
+    if (_abaSelecionada == _SEM_COMANDA) {
+      return _pedidos.where((p) => p.comandaId == null).toList()
+        ..sort((a, b) => b.numero.compareTo(a.numero)); // Mais recente primeiro
+    }
+    
+    // Caso contrário, retorna pedidos da comanda específica
+    return _pedidos.where((p) => p.comandaId == _abaSelecionada).toList()
+      ..sort((a, b) => b.numero.compareTo(a.numero)); // Mais recente primeiro
+  }
+
+  /// Altera o tipo de visualização
+  void setTipoVisualizacao(TipoVisualizacao tipo) {
+    if (_tipoVisualizacao != tipo) {
+      _tipoVisualizacao = tipo;
+      notifyListeners();
+    }
   }
 
   /// Seleciona automaticamente a primeira aba disponível (Mesa ou primeira comanda)
@@ -886,6 +932,9 @@ class MesaDetalhesProvider extends ChangeNotifier {
       
       // Limpa produtos ANTES de processar novos (garante que lista seja atualizada)
       _produtosAgrupados = [];
+      
+      // Armazena pedidos completos para visualização por pedido
+      _pedidos = List.from(pedidosServidor);
 
       // Atualiza contadores de status de sincronização
       _recalcularContadoresPedidos();
@@ -921,6 +970,7 @@ class MesaDetalhesProvider extends ChangeNotifier {
     } catch (e) {
       // Limpa produtos e comandas quando há erro para garantir recarga completa no próximo refresh
       _produtosAgrupados = [];
+      _pedidos = [];
       _comandasDaMesa = [];
       _produtosPorComanda.clear();
       _vendasPorComanda.clear();

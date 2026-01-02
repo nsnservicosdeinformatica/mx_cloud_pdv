@@ -29,12 +29,17 @@ import '../../core/widgets/app_dialog.dart';
 import '../../data/models/modules/restaurante/comanda_list_item.dart';
 import 'package:intl/intl.dart';
 // Novos imports para modelos e widgets extraídos
-import '../../models/mesas/entidade_produtos.dart' show TipoEntidade, MesaComandaInfo;
+import '../../models/mesas/entidade_produtos.dart' show TipoEntidade, TipoVisualizacao, MesaComandaInfo;
 import '../../models/mesas/comanda_com_produtos.dart';
 import '../../models/mesas/tab_data.dart';
 import '../../widgets/mesas/tabs_scrollable_widget.dart';
 import '../../widgets/mesas/produto_card_widget.dart';
+import '../../widgets/mesas/pedido_card_widget.dart';
 import '../../widgets/mesas/total_item_widget.dart';
+import '../dialogs/editar_quantidade_item_dialog.dart';
+import '../dialogs/confirmar_cancelamento_item_dialog.dart';
+import '../dialogs/confirmar_exclusao_pedido_dialog.dart';
+import '../../data/models/core/pedido_operacoes_dto.dart';
 import '../../widgets/mesas/historico_pagamentos_widget.dart';
 import '../../widgets/mesas/enhanced_app_bar_widget.dart';
 import '../../widgets/mesas/compact_header_widget.dart';
@@ -331,7 +336,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
             const SizedBox(width: 8),
           ],
           
-          // Badge compacto com identificação da mesa/comanda
+          // Badge compacto com identificação da mesa/comanda 
           _buildMesaBadge(adaptive, statusExibido, statusColor),
           
           const Spacer(),
@@ -347,6 +352,10 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
             _buildTransferirComandaButton(adaptive),
             const SizedBox(width: 8),
           ],
+          
+          // Botão toggle de visualização (agrupado/por pedido)
+          _buildToggleVisualizacaoButton(adaptive),
+          const SizedBox(width: 8),
           
           // Botão de atualizar (padrão igual área de mesas)
           _buildRefreshButton(adaptive),
@@ -559,6 +568,52 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
             child: Icon(
               Icons.swap_horiz_rounded,
               color: AppTheme.textPrimary,
+              size: adaptive.isMobile ? 20 : 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botão toggle de visualização (agrupado/por pedido)
+  Widget _buildToggleVisualizacaoButton(AdaptiveLayoutProvider adaptive) {
+    final tipoAtual = _provider.tipoVisualizacao;
+    final isAgrupado = tipoAtual == TipoVisualizacao.agrupado;
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          // Alterna entre agrupado e por pedido
+          final novoTipo = isAgrupado 
+              ? TipoVisualizacao.porPedido 
+              : TipoVisualizacao.agrupado;
+          _provider.setTipoVisualizacao(novoTipo);
+        },
+        borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+        child: Tooltip(
+          message: isAgrupado ? 'Visualização por Pedido' : 'Visualização Agrupada',
+          child: Container(
+            padding: EdgeInsets.all(adaptive.isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: isAgrupado ? Colors.grey.shade50 : AppTheme.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(adaptive.isMobile ? 10 : 12),
+              border: Border.all(
+                color: isAgrupado ? Colors.grey.shade300 : AppTheme.primaryColor.withOpacity(0.3),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Icon(
+              isAgrupado ? Icons.receipt_long_rounded : Icons.grid_view_rounded,
+              color: isAgrupado ? AppTheme.textPrimary : AppTheme.primaryColor,
               size: adaptive.isMobile ? 20 : 22,
             ),
           ),
@@ -1588,6 +1643,12 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
   /// Lista de produtos (visão geral)
   Widget _buildListaProdutos(AdaptiveLayoutProvider adaptive) {
+    // Verifica tipo de visualização
+    if (_provider.tipoVisualizacao == TipoVisualizacao.porPedido) {
+      return _buildListaPedidos(adaptive);
+    }
+    
+    // Visualização agrupada (padrão)
     return _provider.errorMessage != null
         ? _buildErrorWidget(adaptive)
         : (_provider.isLoading || _provider.carregandoProdutos)
@@ -1642,6 +1703,86 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
                   );
   }
 
+  /// Lista de pedidos (visualização por pedido)
+  Widget _buildListaPedidos(AdaptiveLayoutProvider adaptive) {
+    return _provider.errorMessage != null
+        ? _buildErrorWidget(adaptive)
+        : (_provider.isLoading || _provider.carregandoProdutos)
+            ? Container(
+                color: Colors.white,
+                child: Center(child: H4ndLoading(size: 60)),
+              )
+            : _buildListaPedidosConteudo(adaptive);
+  }
+
+  /// Conteúdo da lista de pedidos (separado para reutilização)
+  Widget _buildListaPedidosConteudo(AdaptiveLayoutProvider adaptive, {String? comandaId}) {
+    final pedidos = _provider.getPedidosParaAcao();
+    
+    if (pedidos.isEmpty) {
+      // Mensagem específica conforme contexto
+      String mensagem;
+      if (widget.entidade.tipo == TipoEntidade.comanda) {
+        mensagem = 'Nenhum pedido encontrado nesta comanda';
+      } else if (comandaId == null) {
+        mensagem = 'Nenhum pedido encontrado na mesa';
+      } else if (comandaId == MesaDetalhesProvider.semComandaId) {
+        mensagem = 'Nenhum pedido encontrado sem comanda';
+      } else {
+        mensagem = 'Nenhum pedido encontrado nesta comanda';
+      }
+      
+      return Container(
+        color: Colors.white,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                size: 64,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                mensagem,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      color: Colors.white,
+      child: RefreshIndicator(
+        onRefresh: () => _provider.loadProdutos(refresh: true),
+        child: ListView.builder(
+          padding: EdgeInsets.fromLTRB(
+            adaptive.isMobile ? 16 : 20,
+            8,
+            adaptive.isMobile ? 16 : 20,
+            8,
+          ),
+          itemCount: pedidos.length,
+          itemBuilder: (context, index) {
+            return PedidoCardWidget(
+              pedido: pedidos[index],
+              adaptive: adaptive,
+              onEditarItem: (item) => _editarQuantidadeItem(pedidos[index], item),
+              onExcluirItem: (item) => _excluirItem(pedidos[index], item),
+              onCancelarPedido: () => _cancelarPedido(pedidos[index]),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   /// Lista de produtos filtrada por comanda específica
   Widget _buildListaProdutosPorComanda(AdaptiveLayoutProvider adaptive, String? comandaId) {
     // IMPORTANTE: Verifica se está carregando ANTES de verificar se tem produtos
@@ -1655,6 +1796,12 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
       );
     }
     
+    // Verifica tipo de visualização
+    if (_provider.tipoVisualizacao == TipoVisualizacao.porPedido) {
+      return _buildListaPedidosConteudo(adaptive, comandaId: comandaId);
+    }
+    
+    // Visualização agrupada (padrão)
     // Busca os produtos da aba selecionada
     // null = "Mesa" (venda integral - todos os produtos)
     // comandaId = produtos da comanda específica ou "_SEM_COMANDA"
@@ -1862,6 +2009,140 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     } catch (e) {
       debugPrint('❌ [DetalhesProdutosMesaScreen] Erro ao imprimir NFC-e automaticamente: $e');
       // Não mostra erro para o usuário, apenas loga (impressão é opcional)
+    }
+  }
+
+  /// Edita a quantidade de um item do pedido
+  Future<void> _editarQuantidadeItem(
+    PedidoComItensPdvDto pedido,
+    ItemPedidoPdvDto item,
+  ) async {
+    try {
+      // Abre dialog para editar quantidade
+      final novaQuantidade = await EditarQuantidadeItemDialog.show(
+        context,
+        item: item,
+        quantidadeAtual: item.quantidade,
+      );
+
+      if (novaQuantidade == null || novaQuantidade == item.quantidade) {
+        return; // Usuário cancelou ou não alterou
+      }
+
+      // Mostra loading
+      if (!mounted) return;
+      LoadingHelper.show(context);
+
+      // Chama serviço para atualizar
+      final pedidoService = _servicesProvider.pedidoService;
+      final dto = UpdateItemPedidoDto(quantidade: novaQuantidade.toDouble());
+      
+      final response = await pedidoService.atualizarItem(
+        pedido.id,
+        item.id,
+        dto,
+      );
+
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+
+      if (response.success) {
+        AppToast.showSuccess(context, 'Quantidade atualizada com sucesso!');
+        // Recarrega os produtos
+        await _provider.loadProdutos(refresh: true);
+      } else {
+        AppToast.showError(context, response.message ?? 'Erro ao atualizar quantidade');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+      AppToast.showError(context, 'Erro ao editar quantidade: ${e.toString()}');
+    }
+  }
+
+  /// Exclui um item do pedido
+  Future<void> _excluirItem(
+    PedidoComItensPdvDto pedido,
+    ItemPedidoPdvDto item,
+  ) async {
+    try {
+      // Abre dialog para confirmar cancelamento
+      final resultado = await ConfirmarCancelamentoItemDialog.show(
+        context,
+        item: item,
+      );
+
+      if (resultado == null) {
+        return; // Usuário cancelou
+      }
+
+      // Mostra loading
+      if (!mounted) return;
+      LoadingHelper.show(context);
+
+      // Chama serviço para cancelar item
+      final pedidoService = _servicesProvider.pedidoService;
+      final dto = CancelarItemPedidoDto(motivo: resultado.motivo);
+      
+      final response = await pedidoService.cancelarItem(
+        pedido.id,
+        item.id,
+        dto,
+      );
+
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+
+      if (response.success) {
+        AppToast.showSuccess(context, 'Item cancelado com sucesso!');
+        // Recarrega os produtos
+        await _provider.loadProdutos(refresh: true);
+      } else {
+        AppToast.showError(context, response.message ?? 'Erro ao cancelar item');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+      AppToast.showError(context, 'Erro ao excluir item: ${e.toString()}');
+    }
+  }
+
+  /// Cancela um pedido
+  Future<void> _cancelarPedido(PedidoComItensPdvDto pedido) async {
+    try {
+      // Abre dialog para confirmar cancelamento
+      final resultado = await ConfirmarExclusaoPedidoDialog.show(
+        context,
+        pedido: pedido,
+      );
+
+      if (resultado == null) {
+        return; // Usuário cancelou
+      }
+
+      // Mostra loading
+      if (!mounted) return;
+      LoadingHelper.show(context);
+
+      // Cancela pedido
+      final pedidoService = _servicesProvider.pedidoService;
+      final dto = CancelarPedidoDto(motivo: resultado.motivo);
+      final response = await pedidoService.cancelarPedido(pedido.id, dto);
+
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+
+      if (response.success) {
+        AppToast.showSuccess(context, 'Pedido cancelado com sucesso!');
+        // Recarrega os produtos
+        await _provider.loadProdutos(refresh: true);
+      } else {
+        AppToast.showError(context, response.message ?? 'Erro ao cancelar pedido');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      LoadingHelper.hide(context);
+      AppToast.showError(context, 'Erro ao cancelar pedido: ${e.toString()}');
     }
   }
 }

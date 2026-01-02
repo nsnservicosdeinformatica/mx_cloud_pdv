@@ -90,120 +90,238 @@ class _PedidosSyncScreenState extends State<PedidosSyncScreen> {
         subtitle: 'Pedidos pendentes de sincronização',
         backgroundColor: Colors.white,
         foregroundColor: AppTheme.textPrimary,
-        actions: [
-          if (!_sincronizando)
-            Consumer<ServicesProvider>(
-              builder: (context, services, _) {
-                return TextButton.icon(
-                  onPressed: () => _sincronizarTodos(services),
-                  icon: const Icon(Icons.sync, size: 18),
-                  label: const Text('Sincronizar Todos'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.primaryColor,
-                  ),
+      ),
+      body: Column(
+        children: [
+          // Faixa com botão de sincronizar todos
+          _buildSyncBar(),
+          // Conteúdo principal
+          Expanded(
+            child: FutureBuilder(
+              future: _initFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 64, color: AppTheme.errorColor),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Erro ao carregar pedidos locais',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            color: AppTheme.errorColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ValueListenableBuilder(
+                  valueListenable: Hive.box<PedidoLocal>(PedidoLocalRepository.boxName).listenable(),
+                  builder: (context, Box<PedidoLocal> box, _) {
+                    final pedidos = box.values
+                        .where((p) => p.syncStatus != SyncStatusPedido.sincronizado)
+                        .toList()
+                      ..sort((a, b) => (b.dataAtualizacao ?? b.dataCriacao).compareTo(a.dataAtualizacao ?? a.dataCriacao));
+
+                    if (pedidos.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 80,
+                              color: Colors.grey.shade300,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Nenhum pedido pendente',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Todos os pedidos foram sincronizados',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: pedidos.length,
+                      itemBuilder: (context, index) {
+                        final pedido = pedidos[index];
+                        final isExpanded = _expandedPedidos.contains(pedido.id);
+                        return _buildPedidoCard(pedido, isExpanded, context);
+                      },
+                    );
+                  },
                 );
               },
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSyncBar() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+            spreadRadius: 0,
+          ),
+        ],
+        border: Border.all(
+          color: Colors.grey.shade200,
+          width: 1,
+        ),
+      ),
+      child: Consumer<ServicesProvider>(
+        builder: (context, services, _) {
+          if (_sincronizando) {
+            return Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  if (_mensagemProgresso != null) ...[
-                    const SizedBox(width: 8),
+                  child: const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sincronizando pedidos...',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      if (_mensagemProgresso != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _mensagemProgresso!,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.sync,
+                  color: AppTheme.primaryColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      _mensagemProgresso!,
+                      'Sincronizar Todos',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Enviar todos os pedidos pendentes para o servidor',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: AppTheme.textSecondary,
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-        ],
-      ),
-      body: FutureBuilder(
-        future: _initFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: AppTheme.errorColor),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Erro ao carregar pedidos locais',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      color: AppTheme.errorColor,
+              const SizedBox(width: 12),
+              Material(
+                color: AppTheme.primaryColor,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  onTap: () => _sincronizarTodos(services),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.sync,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Sincronizar',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            );
-          }
-
-          return ValueListenableBuilder(
-            valueListenable: Hive.box<PedidoLocal>(PedidoLocalRepository.boxName).listenable(),
-            builder: (context, Box<PedidoLocal> box, _) {
-              final pedidos = box.values
-                  .where((p) => p.syncStatus != SyncStatusPedido.sincronizado)
-                  .toList()
-                ..sort((a, b) => (b.dataAtualizacao ?? b.dataCriacao).compareTo(a.dataAtualizacao ?? a.dataCriacao));
-
-              if (pedidos.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline,
-                        size: 80,
-                        color: Colors.grey.shade300,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Nenhum pedido pendente',
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Todos os pedidos foram sincronizados',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: pedidos.length,
-                itemBuilder: (context, index) {
-                  final pedido = pedidos[index];
-                  final isExpanded = _expandedPedidos.contains(pedido.id);
-                  return _buildPedidoCard(pedido, isExpanded, context);
-                },
-              );
-            },
+            ],
           );
         },
       ),

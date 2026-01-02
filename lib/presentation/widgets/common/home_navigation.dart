@@ -7,7 +7,6 @@ import '../../../screens/mesas_comandas/mesas_comandas_screen.dart';
 import '../../../screens/pedidos/pedidos_screen.dart';
 import '../../../screens/balcao/balcao_screen.dart';
 import '../../../screens/patio/patio_screen.dart';
-import '../../../screens/profile/profile_screen.dart';
 
 /// Widget principal de navegação com bottom navigation bar
 class HomeNavigation extends StatefulWidget {
@@ -28,10 +27,26 @@ class _HomeNavigationState extends State<HomeNavigation> {
     super.initState();
     // Inicializa o notifier com o índice inicial
     _navigationIndexNotifier.value = _currentIndex;
+    // Listener para atualizar o índice quando o notifier mudar
+    _navigationIndexNotifier.addListener(_onNavigationIndexChanged);
     // Usa WidgetsBinding para garantir que o contexto está pronto
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSetor();
     });
+  }
+
+  void _onNavigationIndexChanged() {
+    if (mounted && _navigationIndexNotifier.value != _currentIndex) {
+      setState(() {
+        _currentIndex = _navigationIndexNotifier.value;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _navigationIndexNotifier.removeListener(_onNavigationIndexChanged);
+    super.dispose();
   }
 
   @override
@@ -100,7 +115,9 @@ class _HomeNavigationState extends State<HomeNavigation> {
     final homeItem = NavigationItem(
       icon: Icons.home,
       label: 'Home',
-      screen: const HomeUnifiedScreen(),
+      screen: HomeUnifiedScreen(
+        navigationIndexNotifier: _navigationIndexNotifier,
+      ),
     );
 
     if (_setor == null) {
@@ -111,11 +128,6 @@ class _HomeNavigationState extends State<HomeNavigation> {
           icon: Icons.receipt_long,
           label: 'Pedidos',
           screen: const PedidosScreen(),
-        ),
-        NavigationItem(
-          icon: Icons.person,
-          label: 'Perfil',
-          screen: const ProfileScreen(),
         ),
       ];
     }
@@ -141,14 +153,6 @@ class _HomeNavigationState extends State<HomeNavigation> {
           ),
         );
         
-        items.add(
-          NavigationItem(
-            icon: Icons.person,
-            label: 'Perfil',
-            screen: const ProfileScreen(),
-          ),
-        );
-        
         return items;
       case 3: // Oficina
         return [
@@ -157,11 +161,6 @@ class _HomeNavigationState extends State<HomeNavigation> {
             icon: Icons.directions_car,
             label: 'Pátio',
             screen: const PatioScreen(),
-          ),
-          NavigationItem(
-            icon: Icons.person,
-            label: 'Perfil',
-            screen: const ProfileScreen(),
           ),
         ];
       default: // Varejo (1 ou null)
@@ -172,25 +171,19 @@ class _HomeNavigationState extends State<HomeNavigation> {
             label: 'Pedidos',
             screen: const PedidosScreen(),
           ),
-          NavigationItem(
-            icon: Icons.person,
-            label: 'Perfil',
-            screen: const ProfileScreen(),
-          ),
         ];
     }
   }
 
   /// Retorna a cor específica para cada item de navegação
   Color _getItemColor(NavigationItem item) {
-    // Cores vibrantes para cada botão
+    // Cores mais fortes e vibrantes para cada botão
     final colorMap = {
-      'Home': const Color(0xFF6366F1), // Indigo
-      'Pedidos': const Color(0xFF10B981), // Emerald
-      'Mesas e Comandas': const Color(0xFFFF6B6B), // Coral
-      'Balcão': const Color(0xFFF59E0B), // Amber
-      'Pátio': const Color(0xFF4DABF7), // Azul brilhante
-      'Perfil': const Color(0xFF8B5CF6), // Purple
+      'Home': const Color(0xFF4F46E5), // Indigo mais forte
+      'Pedidos': const Color(0xFF059669), // Emerald mais forte
+      'Mesas e Comandas': const Color(0xFFDC2626), // Vermelho mais forte
+      'Balcão': const Color(0xFFD97706), // Amber mais forte
+      'Pátio': const Color(0xFF0284C7), // Azul mais forte
     };
 
     return colorMap[item.label] ?? Theme.of(context).colorScheme.primary;
@@ -202,12 +195,8 @@ class _HomeNavigationState extends State<HomeNavigation> {
     List<NavigationItem> navigationItems,
   ) {
     final content = Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 6,
-      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: navigationItems.asMap().entries.map((entry) {
           final index = entry.key;
           final item = entry.value;
@@ -224,20 +213,33 @@ class _HomeNavigationState extends State<HomeNavigation> {
                   });
                   _navigationIndexNotifier.value = index;
                 },
-                borderRadius: BorderRadius.circular(16),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutCubic,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
+                    vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    // ✅ Botão inteiro colorido
+                    // ✅ Botão inteiro colorido sem bordas arredondadas
                     color: isActive
                         ? itemColor // Cor completa quando ativo
-                        : itemColor.withOpacity(0.15), // Cor suave quando inativo
-                    borderRadius: BorderRadius.circular(16),
+                        : itemColor.withOpacity(0.2), // Cor mais forte quando inativo
+                    // Sombra forte para destacar botão ativo
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: itemColor.withOpacity(0.8),
+                              blurRadius: 16,
+                              offset: const Offset(0, -4),
+                              spreadRadius: 3,
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -249,19 +251,17 @@ class _HomeNavigationState extends State<HomeNavigation> {
                         color: isActive
                             ? Colors.white // Ícone branco quando botão está colorido
                             : itemColor, // Ícone colorido quando botão está suave
-                        size: isActive ? 26 : 24,
+                        size: 24, // Tamanho fixo
                       ),
                       const SizedBox(height: 4),
                       AnimatedDefaultTextStyle(
                         duration: const Duration(milliseconds: 300),
                         style: TextStyle(
-                          fontSize: isActive ? 12 : 11,
+                          fontSize: 11, // Tamanho fixo
                           color: isActive
                               ? Colors.white // Texto branco quando botão está colorido
                               : itemColor, // Texto colorido quando botão está suave
-                          fontWeight: isActive
-                              ? FontWeight.w600
-                              : FontWeight.w500,
+                          fontWeight: FontWeight.w600, // Peso fixo
                           height: 1.2,
                         ),
                         child: Text(

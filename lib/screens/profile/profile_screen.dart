@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../core/theme/app_theme.dart';
+import '../../widgets/app_header.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
-import '../../presentation/screens/server_config/server_config_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Tela de perfil do usuário
@@ -29,6 +29,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = authProvider.user;
 
     return Scaffold(
+      appBar: AppHeader(
+        title: 'Perfil',
+        backgroundColor: Colors.white,
+        foregroundColor: AppTheme.textPrimary,
+      ),
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -53,16 +58,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 
                 SizedBox(height: adaptive.isMobile ? 16 : adaptive.getCardSpacing()),
                 
-                // Botão de trocar servidor
-                _buildChangeServerButton(context, adaptive),
-                
-                SizedBox(height: adaptive.isMobile ? 16 : adaptive.getCardSpacing()),
-                
                 // Botão de sair
                 _buildLogoutButton(context, authProvider, adaptive),
                 
-                // Espaço extra no final
-                SizedBox(height: adaptive.isMobile ? 20 : 0),
+                // Espaço extra no final para não ficar escondido pelo bottom navigation
+                SizedBox(height: adaptive.isMobile ? 100 : 120),
               ],
             ),
           ),
@@ -236,100 +236,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: Icon(
                     Icons.arrow_forward_ios,
                     color: AppTheme.infoColor,
-                    size: adaptive.isMobile ? 16 : 18,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChangeServerButton(
-    BuildContext context,
-    AdaptiveLayoutProvider adaptive,
-  ) {
-    return SizedBox(
-      width: double.infinity,
-      child: Material(
-        color: Colors.transparent,
-        elevation: 0,
-        child: InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const AdaptiveLayout(
-                  child: ServerConfigScreen(allowBack: true),
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(adaptive.isMobile ? 20 : 24),
-          child: Container(
-            padding: EdgeInsets.all(adaptive.isMobile ? 20 : 24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(adaptive.isMobile ? 20 : 24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(adaptive.isMobile ? 14 : 16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.warningColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(adaptive.isMobile ? 14 : 16),
-                  ),
-                  child: Icon(
-                    Icons.dns_outlined,
-                    color: AppTheme.warningColor,
-                    size: adaptive.isMobile ? 28 : 32,
-                  ),
-                ),
-                SizedBox(width: adaptive.isMobile ? 16 : 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Trocar Servidor',
-                        style: GoogleFonts.inter(
-                          fontSize: adaptive.isMobile ? 18 : 20,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: adaptive.isMobile ? 6 : 8),
-                      Text(
-                        'Alterar endereço do servidor',
-                        style: GoogleFonts.inter(
-                          fontSize: adaptive.isMobile ? 13 : 14,
-                          color: AppTheme.textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  child: Icon(
-                    Icons.arrow_forward_ios,
-                    color: AppTheme.warningColor,
                     size: adaptive.isMobile ? 16 : 18,
                   ),
                 ),

@@ -3,7 +3,7 @@ import '../storage/preferences_service.dart';
 import '../constants/storage_keys.dart';
 import '../../data/models/core/app_config.dart';
 import 'app_config_service.dart';
-import 'server_config_service.dart';
+import 'connection_config_service.dart';
 
 /// Configuração de ambiente da aplicação
 abstract class EnvConfig {
@@ -15,7 +15,7 @@ abstract class EnvConfig {
 }
 
 /// Configuração baseada nas configs salvas do backend
-/// A URL da API vem do ServerConfigService (configurada pelo usuário)
+/// A URL da API vem do ConnectionConfigService (configurada pelo usuário)
 class SavedAppConfig implements EnvConfig {
   final AppConfig _config;
 
@@ -23,8 +23,8 @@ class SavedAppConfig implements EnvConfig {
 
   @override
   String get apiBaseUrl {
-    // A URL da API vem do ServerConfigService (o que o usuário digitou)
-    final serverUrl = ServerConfigService.getServerUrl() ?? '';
+    // A URL da API vem do ConnectionConfigService
+    final serverUrl = ConnectionConfigService.getServerUrl() ?? '';
     if (serverUrl.isEmpty) {
       // Fallback para padrão se não tiver configurado
       return 'https://api-hml.h4nd.com.br';
@@ -34,8 +34,8 @@ class SavedAppConfig implements EnvConfig {
 
   @override
   String get apiUrl {
-    // Usa ServerConfigService.getApiUrl() que já adiciona /api se necessário
-    return ServerConfigService.getApiUrl();
+    // Usa ConnectionConfigService.getApiUrl() que já adiciona /api se necessário
+    return ConnectionConfigService.getApiUrl();
   }
 
   @override

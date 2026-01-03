@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/config/env_config.dart';
-import 'core/config/server_config_service.dart';
+import 'core/config/connection_config_service.dart';
 import 'core/storage/preferences_service.dart';
 import 'core/storage/secure_storage_service.dart';
 import 'data/services/core/auth_service.dart';
@@ -105,7 +105,7 @@ Future<void> initializeApp() async {
     
     // Verifica se o servidor está configurado
     debugPrint('🔍 [INIT] Verificando configuração do servidor...');
-    final isServerConfigured = ServerConfigService.isConfigured();
+    final isServerConfigured = ConnectionConfigService.isConfigured();
     debugPrint('📋 [INIT] Servidor configurado: $isServerConfigured');
   
     // Se não estiver configurado, inicia direto na tela de configuração

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/adaptive_layout/adaptive_layout.dart';
-import '../../widgets/common/mx_logo.dart';
+import '../../widgets/common/h4nd_logo.dart';
 import '../../widgets/common/home_navigation.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -22,18 +22,22 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   bool _obscurePassword = true;
   bool _rememberMe = false;
   
-  // Animações da logo - simplificadas
+  // Animações da logo
   late AnimationController _logoController;
   late Animation<double> _logoScaleAnimation;
   late Animation<double> _logoOpacityAnimation;
+  
+  // Animações de fundo
+  late AnimationController _backgroundController;
+  late Animation<double> _backgroundAnimation;
 
   @override
   void initState() {
     super.initState();
     
-    // Configurar animações simples da logo
+    // Configurar animações da logo
     _logoController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
     
@@ -41,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _logoScaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(
         parent: _logoController,
-        curve: Curves.easeOut,
+        curve: Curves.easeOutBack,
       ),
     );
     
@@ -53,13 +57,27 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       ),
     );
     
-    // Iniciar animação
+    // Animação de fundo (gradiente animado)
+    _backgroundController = AnimationController(
+      duration: const Duration(seconds: 8),
+      vsync: this,
+    )..repeat(reverse: true);
+    
+    _backgroundAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _backgroundController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    
+    // Iniciar animações
     _logoController.forward();
   }
 
   @override
   void dispose() {
     _logoController.dispose();
+    _backgroundController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -100,31 +118,57 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = AdaptiveLayoutProvider.of(context);
+    if (adaptive == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppTheme.primaryColor,
-              AppTheme.secondaryColor,
-              AppTheme.accentColor,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Logo MX animada com entrada simples
+      body: AnimatedBuilder(
+        animation: _backgroundAnimation,
+        builder: (context, child) {
+          return Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.lerp(
+                    const Color(0xFF1E3A8A),
+                    const Color(0xFF1E40AF),
+                    _backgroundAnimation.value,
+                  )!,
+                  Color.lerp(
+                    const Color(0xFF2563EB),
+                    const Color(0xFF3B82F6),
+                    _backgroundAnimation.value,
+                  )!,
+                  Color.lerp(
+                    const Color(0xFF1E3A8A).withOpacity(0.9),
+                    const Color(0xFF1E40AF).withOpacity(0.9),
+                    _backgroundAnimation.value,
+                  )!,
+                ],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+            child: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: adaptive.isMobile ? 24 : 48,
+                    vertical: 24,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 450),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Logo H4ND animada (ocupando toda largura)
                       AnimatedBuilder(
                         animation: _logoController,
                         builder: (context, child) {
@@ -132,57 +176,143 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             scale: _logoScaleAnimation.value,
                             child: Opacity(
                               opacity: _logoOpacityAnimation.value,
-                              child: const MXLogo(
-                                size: 120,
-                                animated: true,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 32,
+                                  vertical: 24,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.95),
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: H4NDLogo(
+                                    fontSize: adaptive.isMobile ? 48 : 56,
+                                    showPdv: true,
+                                  ),
+                                ),
                               ),
                             ),
                           );
                         },
                       ),
+                      const SizedBox(height: 32),
+
+                      // Divisor visual decorativo
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              height: 1,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.white.withOpacity(0.3),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withOpacity(0.5),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Container(
+                              height: 1,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white.withOpacity(0.3),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 40),
 
-                      // Título
-                      Text(
-                        'MX Cloud PDV',
-                        style: GoogleFonts.inter(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
+                      // Card de login com efeito de vidro
+                      Container(
+                        decoration: BoxDecoration(
                           color: Colors.white,
-                          letterSpacing: -1,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Sistema de Atendimento',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white.withOpacity(0.9),
-                        ),
-                      ),
-                      const SizedBox(height: 48),
-
-                      // Card de login
-                      Card(
-                        elevation: 8,
-                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 30,
+                              offset: const Offset(0, 10),
+                              spreadRadius: 5,
+                            ),
+                            BoxShadow(
+                              color: Colors.white.withOpacity(0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, -5),
+                            ),
+                          ],
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.all(24.0),
+                          padding: const EdgeInsets.all(32.0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              // Título do card
                               Text(
-                                'Login',
+                                'Bem-vindo!',
                                 style: GoogleFonts.inter(
-                                  fontSize: 24,
+                                  fontSize: adaptive.isMobile ? 26 : 28,
                                   fontWeight: FontWeight.bold,
-                                  color: AppTheme.textPrimary,
+                                  color: const Color(0xFF1E3A8A),
+                                  letterSpacing: -0.5,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Informe suas credenciais',
+                                style: GoogleFonts.inter(
+                                  fontSize: adaptive.isMobile ? 14 : 15,
+                                  fontWeight: FontWeight.w400,
+                                  color: AppTheme.textSecondary,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 32),
+                              
+                              // Divisor interno
+                              Container(
+                                height: 1,
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.grey[300]!,
+                                      Colors.transparent,
+                                    ],
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 16),
 
                               // Email
                               TextFormField(
@@ -270,8 +400,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                         : _handleLogin,
                                     style: ElevatedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
+                                        vertical: 18,
                                       ),
+                                      backgroundColor: const Color(0xFF1E3A8A),
+                                      foregroundColor: Colors.white,
+                                      elevation: 4,
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(16),
                                       ),
@@ -289,7 +422,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                             ),
                                           )
                                         : Text(
-                                            'Entrar',
+                                            'Acessar',
                                             style: GoogleFonts.inter(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600,
@@ -302,16 +435,19 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                           ),
                         ),
                       ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
+  
 }
 
 

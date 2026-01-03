@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_dialog.dart';
-import '../../core/config/server_config_service.dart';
+import '../../core/config/connection_config_service.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/providers/services_provider.dart';
 import '../../data/models/home/home_widget_type.dart';
@@ -327,8 +327,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     final user = authProvider.user;
     final vendasPendentes = _getBadgeCount(HomeWidgetType.sincronizarVendas) ?? 0;
     final ultimaSync = syncProvider.ultimaSincronizacao;
-    final serverUrl = ServerConfigService.getServerUrl() ?? 'Não configurado';
-    final serverStatus = ServerConfigService.isConfigured() ? 'Conectado' : 'Desconectado';
+    final serverUrl = ConnectionConfigService.getServerUrl() ?? 'Não configurado';
+    final serverStatus = ConnectionConfigService.isConfigured() ? 'Conectado' : 'Desconectado';
 
     // Lista de botões funcionais
     final buttons = [

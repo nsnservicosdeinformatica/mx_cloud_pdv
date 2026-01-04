@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../core/adaptive_layout/adaptive_layout.dart';
 import '../../core/theme/app_theme.dart';
@@ -295,14 +296,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
 
           if (confirm == true && mounted) {
+            try {
             await authProvider.logout();
+              
+              // Aguardar um frame para garantir que o estado foi atualizado
+              await Future.delayed(const Duration(milliseconds: 100));
+              
+              if (mounted) {
+                // Navegar para tela de login removendo todas as rotas anteriores
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => const AdaptiveLayout(
+                      child: LoginScreen(),
+                    ),
+                  ),
+                  (route) => false,
+                );
+              }
+            } catch (e) {
+              // Em caso de erro, navegar mesmo assim
             if (mounted) {
+                debugPrint('Erro ao fazer logout: $e');
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                  builder: (context) => const LoginScreen(),
+                    builder: (context) => const AdaptiveLayout(
+                      child: LoginScreen(),
+                    ),
                 ),
                 (route) => false,
               );
+              }
             }
           }
         },

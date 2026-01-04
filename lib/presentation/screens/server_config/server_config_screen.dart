@@ -8,6 +8,7 @@ import '../../../core/network/health_check_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../main.dart' as main_app;
 import '../../widgets/common/h4nd_logo.dart';
+import '../auth/login_screen.dart';
 
 /// Tela de configuração do servidor
 /// Aparece quando não há configuração salva ou quando o usuário quer trocar servidor
@@ -62,8 +63,8 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
         _tipoConexaoSelecionado = config.tipoConexao;
         if (config.isLocal) {
           _serverUrlController.text = config.serverUrl;
-        }
-      });
+      }
+    });
     }
   }
 
@@ -125,10 +126,33 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
     }
 
     if (saved && mounted) {
-      // Reiniciar app para carregar providers
-      if (mounted) {
+      if (widget.allowBack) {
+        // Se permitir voltar, significa que veio do login
+        // Resetar navegação completamente e ir para login como root
+        debugPrint('✅ [ServerConfigScreen] Configuração salva, resetando navegação para login...');
+    
+        // Aguardar um frame para garantir que o estado foi atualizado
+        await Future.delayed(const Duration(milliseconds: 100));
+    
+    if (mounted) {
+          // Usar pushAndRemoveUntil para limpar toda a pilha de navegação
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const AdaptiveLayout(
+            child: LoginScreen(),
+          ),
+        ),
+            (route) => false, // Remove todas as rotas anteriores, incluindo a atual
+      );
+        }
+      } else {
+        // Reiniciar app para carregar providers (fluxo inicial)
+        debugPrint('🔄 [ServerConfigScreen] Reiniciando app após configuração...');
         await main_app.initializeApp();
       }
+    } else if (!saved && mounted && widget.allowBack) {
+      // Se não salvou mas allowBack é true, não faz nada (fica na tela para tentar novamente)
+      debugPrint('⚠️ [ServerConfigScreen] Configuração não foi salva, permanecendo na tela');
     }
   }
 
@@ -142,13 +166,8 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
     }
 
     return Scaffold(
-      appBar: widget.allowBack
-          ? AppBar(
-              title: const Text('Configuração do Servidor'),
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-            )
-          : null,
+      // Nunca exibe AppBar na tela de configuração de servidor
+      appBar: null,
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -432,8 +451,8 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
                           ],
                         ),
                         ),
-                      ),
-                    ],
+                              ),
+                            ],
                 ),
               ),
             ),
@@ -532,18 +551,18 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                              Text(
                               'Servidor Online (H4ND)',
-                              style: GoogleFonts.inter(
+                                style: GoogleFonts.inter(
                                 fontSize: isMobile ? 17 : 19,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.black87,
                               ),
                             ),
                             SizedBox(height: 4),
-                            Text(
+                              Text(
                               'Conecta ao servidor na nuvem',
-                              style: GoogleFonts.inter(
+                                style: GoogleFonts.inter(
                                 fontSize: isMobile ? 13 : 14,
                                 color: Colors.grey[600],
                               ),

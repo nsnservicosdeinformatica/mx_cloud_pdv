@@ -44,13 +44,14 @@ class SyncProvider extends ChangeNotifier {
       );
 
       _lastResult = result;
-      _ultimaSincronizacao = DateTime.now();
-      await _atualizarEstatisticas();
 
       if (result.sucesso) {
-        // Sincronização bem-sucedida
+        // Atualiza a data da última sincronização apenas se foi bem-sucedida
+        // A data já foi salva pelo SyncService, então buscamos do serviço
+        _ultimaSincronizacao = await _syncService.obterUltimaSincronizacao() ?? DateTime.now();
+        await _atualizarEstatisticas();
       } else {
-        // Erro na sincronização
+        // Erro na sincronização - não atualiza a data
       }
     } catch (e) {
       _lastResult = SyncResult(
@@ -87,6 +88,12 @@ class SyncProvider extends ChangeNotifier {
   Future<DateTime?> _obterUltimaSincronizacao() async {
     try {
       final box = await Hive.openBox('sincronizacao_metadados');
+      // Prioriza a sincronização geral
+      final geral = box.get('ultima_sincronizacao_geral') as String?;
+      if (geral != null) {
+        return DateTime.parse(geral);
+      }
+      // Fallback para produtos
       final produtos = box.get('ultima_sincronizacao_produtos') as String?;
       if (produtos != null) {
         return DateTime.parse(produtos);

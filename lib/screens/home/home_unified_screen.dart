@@ -16,6 +16,7 @@ import '../../data/repositories/pedido_local_repository.dart';
 import '../../data/models/local/pedido_local.dart';
 import '../../data/models/local/sync_status_pedido.dart';
 import '../sync/sync_dialog.dart';
+import '../sync/api_local_sync_dialog.dart';
 import '../pedidos/pedidos_sync_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart' show TipoVisualizacao;
@@ -77,6 +78,10 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
             _isLoading = false;
           });
           
+          // Após a inicialização estar completa, verifica sincronização
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _verificarESincronizar(servicesProvider);
+          });
         }
       }
     } catch (e) {
@@ -86,6 +91,42 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         });
       }
     }
+  }
+
+  /// Verifica se precisa sincronizar e sincroniza automaticamente após inicialização completa
+  void _verificarESincronizar(ServicesProvider servicesProvider) {
+    if (!mounted) return;
+    
+    final syncProvider = servicesProvider.syncProvider;
+    
+    // Verifica se precisa sincronizar (retorna true se nunca sincronizou)
+    syncProvider.verificarSePrecisaSincronizar().then((precisaSync) {
+      if (!mounted) return;
+      
+      if (precisaSync) {
+        final ultimaSync = syncProvider.ultimaSincronizacao;
+        final isPrimeiraVez = ultimaSync == null;
+        
+        debugPrint('🔄 [Home] Sincronização necessária (última sync: ${ultimaSync ?? "nunca"}), iniciando sincronização automática...');
+        debugPrint('🔄 [Home] ${isPrimeiraVez ? "Primeira sincronização - forçando" : "Sincronização automática"}...');
+        
+        // Mostra o dialog de sincronização para exibir o progresso
+        // Se é primeira vez, força sincronização
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => SyncDialog(
+            syncProvider: syncProvider,
+            forcar: isPrimeiraVez,
+          ),
+        );
+      } else {
+        final ultimaSync = syncProvider.ultimaSincronizacao;
+        debugPrint('✅ [Home] Sincronização não necessária ou já realizada recentemente (última sync: $ultimaSync)');
+      }
+    }).catchError((e) {
+      debugPrint('⚠️ Erro ao verificar necessidade de sincronização: $e');
+    });
   }
 
   // Método será usado na próxima etapa quando implementarmos o novo layout
@@ -234,6 +275,36 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     }
   }
 
+  Future<void> _mostrarDialogSincronizacaoApiLocal() async {
+    // Mostra dialog de confirmação primeiro
+    final confirmado = await AppDialog.showConfirm(
+      context: context,
+      title: 'Confirmar Sincronização do Servidor',
+      message: 'A sincronização irá buscar dados atualizados do servidor cloud para a API local. '
+          'Esta ação pode demorar alguns minutos.\n\n'
+          'Deseja continuar?',
+      confirmText: 'Sincronizar',
+      cancelText: 'Cancelar',
+      icon: Icons.cloud_sync,
+      iconColor: const Color(0xFF10B981),
+      confirmColor: const Color(0xFF10B981),
+    );
+
+    // Se o usuário confirmou, inicia a sincronização
+    if (confirmado == true && mounted) {
+      final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+      final apiLocalSyncService = servicesProvider.apiLocalSyncService;
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => ApiLocalSyncDialog(
+          apiLocalSyncService: apiLocalSyncService,
+        ),
+      );
+    }
+  }
+
   // Método será usado na próxima etapa quando implementarmos o novo layout
   // ignore: unused_element
   int? _getBadgeCount(HomeWidgetType type) {
@@ -269,6 +340,10 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
 
             return Consumer<ServicesProvider>(
               builder: (context, servicesProvider, _) {
+                // Escuta mudanças no SyncProvider para atualizar a UI quando sincronização terminar
+                return ListenableBuilder(
+                  listenable: servicesProvider.syncProvider,
+                  builder: (context, _) {
                 return ValueListenableBuilder<Box<HomeWidgetUserConfig>>(
                   valueListenable: _configRepo.listenable(),
                   builder: (context, box, _) {
@@ -306,6 +381,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
 
               // Grid de botões funcionais - preenche 100% da tela até o bottom navigation
               return _buildFunctionalButtonsGrid(context, adaptive, servicesProvider);
+                      },
+                    );
                   },
                 );
               },
@@ -329,9 +406,26 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     final ultimaSync = syncProvider.ultimaSincronizacao;
     final serverUrl = ConnectionConfigService.getServerUrl() ?? 'Não configurado';
     final serverStatus = ConnectionConfigService.isConfigured() ? 'Conectado' : 'Desconectado';
+    final isLocalServer = ConnectionConfigService.getCurrentConfig()?.isLocal ?? false;
 
     // Lista de botões funcionais
-    final buttons = [
+    final buttons = <_ButtonData>[];
+    
+    // Se for servidor local, adiciona botão de sincronização da API local primeiro
+    if (isLocalServer) {
+      buttons.add(
+        _ButtonData(
+          title: 'Sincronizar Servidor',
+          icon: Icons.cloud_sync,
+          color: const Color(0xFF10B981), // Verde
+          subtitle: 'Sincronizar dados do servidor cloud',
+          onTap: _mostrarDialogSincronizacaoApiLocal,
+        ),
+      );
+    }
+    
+    // Botão de sincronização do Hive (sempre presente)
+    buttons.add(
       _ButtonData(
         title: 'Sincronização de Dados',
         icon: Icons.sync,
@@ -341,6 +435,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
             : 'Nunca sincronizado',
         onTap: _mostrarDialogSincronizacao,
       ),
+    );
+    buttons.add(
       _ButtonData(
         title: 'Vendas Pendentes',
         icon: Icons.pending_actions,
@@ -357,6 +453,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
           );
         },
       ),
+    );
+    buttons.add(
       _ButtonData(
         title: 'Impressoras',
         icon: Icons.print,
@@ -364,6 +462,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         subtitle: 'Gerenciar impressoras',
         onTap: () {},
       ),
+    );
+    buttons.add(
       _ButtonData(
         title: 'Configuração do Servidor',
         icon: Icons.settings,
@@ -372,6 +472,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         status: serverStatus == 'Conectado',
         onTap: () {},
       ),
+    );
+    buttons.add(
       _ButtonData(
         title: 'Vendas Recentes',
         icon: Icons.receipt_long,
@@ -379,6 +481,8 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
         subtitle: 'Visualizar vendas recentes',
         onTap: () {},
       ),
+    );
+    buttons.add(
       _ButtonData(
         title: 'Usuário Logado',
         icon: Icons.person,
@@ -396,7 +500,7 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
           );
         },
       ),
-    ];
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {

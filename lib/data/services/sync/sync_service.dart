@@ -192,6 +192,11 @@ class SyncService {
         },
       );
 
+      // Atualizar data da última sincronização geral após sincronização completa bem-sucedida
+      final agora = DateTime.now();
+      await _atualizarMetadadosSincronizacao('completa', agora);
+      debugPrint('✅ [SyncService] Data da última sincronização geral atualizada: ${agora.toIso8601String()}');
+
       onProgress?.call(SyncProgress(
         etapa: 'Concluído',
         progresso: 100,
@@ -619,11 +624,17 @@ class SyncService {
     return DateTime.now().difference(ultimaSync) > intervalo;
   }
 
-  /// Obtém última sincronização
+  /// Obtém última sincronização geral
   Future<DateTime?> obterUltimaSincronizacao() async {
     try {
-      final metadados = await _obterMetadadosSincronizacao();
-      final produtos = metadados['ultima_sincronizacao_produtos'];
+      final box = await Hive.openBox('sincronizacao_metadados');
+      // Prioriza a sincronização geral, que é atualizada em todas as sincronizações
+      final geral = box.get('ultima_sincronizacao_geral') as String?;
+      if (geral != null) {
+        return DateTime.parse(geral);
+      }
+      // Fallback para produtos se não houver geral
+      final produtos = box.get('ultima_sincronizacao_produtos') as String?;
       if (produtos != null) {
         return DateTime.parse(produtos);
       }

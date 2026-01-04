@@ -39,4 +39,9 @@ class ApiEndpoints {
   static const String syncProdutos = '/produto-pdv-sync/produtos';
   static const String syncGruposExibicao = '/produto-pdv-sync/grupos-exibicao';
   static const String syncMesasComandas = '/pdv-sync/mesas-comandas';
+  
+  // Sincronização API Local (busca dados do servidor cloud)
+  static const String syncApiLocalFull = '/sync/full';
+  static const String syncApiLocalIncremental = '/sync/incremental';
+  static const String syncApiLocalTable = '/sync/table';
 }

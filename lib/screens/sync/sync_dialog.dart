@@ -5,10 +5,12 @@ import '../../data/services/sync/sync_service.dart';
 
 class SyncDialog extends StatefulWidget {
   final SyncProvider syncProvider;
+  final bool forcar;
 
   const SyncDialog({
     super.key,
     required this.syncProvider,
+    this.forcar = false,
   });
 
   @override
@@ -22,7 +24,7 @@ class _SyncDialogState extends State<SyncDialog> {
     widget.syncProvider.addListener(_onSyncUpdate);
     // Aguarda um frame para garantir que o dialog está montado antes de iniciar
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.syncProvider.sincronizar();
+      widget.syncProvider.sincronizar(forcar: widget.forcar);
     });
   }
 

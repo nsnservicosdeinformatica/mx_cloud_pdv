@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/adaptive_layout/adaptive_layout.dart';
+import '../../../core/config/connection_config_service.dart';
 import '../../widgets/common/h4nd_logo.dart';
 import '../../widgets/common/home_navigation.dart';
+import '../server_config/server_config_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Tela de login
@@ -130,11 +132,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         animation: _backgroundAnimation,
         builder: (context, child) {
           return Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
                   Color.lerp(
                     const Color(0xFF1E3A8A),
                     const Color(0xFF1E40AF),
@@ -150,24 +152,29 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                     const Color(0xFF1E40AF).withOpacity(0.9),
                     _backgroundAnimation.value,
                   )!,
-                ],
+            ],
                 stops: const [0.0, 0.5, 1.0],
-              ),
-            ),
-            child: SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
+          ),
+        ),
+        child: SafeArea(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Center(
+            child: SingleChildScrollView(
                   padding: EdgeInsets.symmetric(
                     horizontal: adaptive.isMobile ? 24 : 48,
                     vertical: 24,
                   ),
-                  child: ConstrainedBox(
+              child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 450),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                          // Espaço no topo para o indicador de servidor no mobile
+                          if (adaptive.isMobile) const SizedBox(height: 50),
                           // Logo H4ND animada (ocupando toda largura)
                       AnimatedBuilder(
                         animation: _logoController,
@@ -178,9 +185,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                               opacity: _logoOpacityAnimation.value,
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 32,
-                                  vertical: 24,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: adaptive.isMobile ? 24 : 32,
+                                  vertical: adaptive.isMobile ? 16 : 24,
                                 ),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withOpacity(0.95),
@@ -205,51 +212,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                           );
                         },
                       ),
-                      const SizedBox(height: 32),
-
-                      // Divisor visual decorativo
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.white.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white.withOpacity(0.5),
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.white.withOpacity(0.3),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 40),
+                      SizedBox(height: adaptive.isMobile ? 20 : 24),
 
                       // Card de login com efeito de vidro
                       Container(
@@ -435,17 +398,198 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                           ),
                         ),
                       ),
-                        ],
-                      ),
-                    ),
+                    ],
                   ),
                 ),
               ),
             ),
-          );
+          ),
+                  // Indicador de servidor (por último no Stack para ficar por cima de tudo)
+                  // No mobile, coloca no topo
+                  // No desktop, fica no canto superior direito
+                  Positioned(
+                    top: adaptive.isMobile ? 8 : 16,
+                    right: adaptive.isMobile ? 8 : 16,
+                    child: _buildServerIndicator(context, adaptive),
+                  ),
+                ],
+              ),
+      ),
+    );
         },
       ),
     );
+  }
+
+  /// Widget sutil para indicar e trocar de servidor
+  Widget _buildServerIndicator(BuildContext context, AdaptiveLayoutProvider adaptive) {
+    final config = ConnectionConfigService.getCurrentConfig();
+    
+    if (config == null) {
+      return const SizedBox.shrink();
+    }
+
+    // Texto a ser exibido
+    final serverText = config.isRemoto 
+        ? 'H4ND Cloud'
+        : config.serverUrl.replaceFirst(RegExp(r'^https?://'), ''); // Remove http:// ou https://
+
+    return Material(
+      color: Colors.transparent,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Indicador do servidor atual
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: adaptive.isMobile ? 12 : 16,
+              vertical: adaptive.isMobile ? 8 : 10,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  config.isRemoto ? Icons.cloud : Icons.dns,
+                  size: adaptive.isMobile ? 16 : 18,
+                  color: Colors.white.withOpacity(0.9),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    serverText,
+                    style: GoogleFonts.inter(
+                      fontSize: adaptive.isMobile ? 11 : 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withOpacity(0.9),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Botão para sair/trocar servidor
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _sairDoServidor(context),
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: EdgeInsets.all(adaptive.isMobile ? 8 : 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  Icons.logout,
+                  size: adaptive.isMobile ? 16 : 18,
+                  color: Colors.white.withOpacity(0.9),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Mostra dialog de confirmação e navega para configuração de servidor
+  Future<void> _sairDoServidor(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: AppTheme.warningColor,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Alterar Servidor',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'A configuração do servidor será alterada e você precisará reconfigurar o servidor.\n\n'
+          'Deseja continuar?',
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(
+              'Cancelar',
+              style: GoogleFonts.inter(
+                color: AppTheme.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text(
+              'Continuar',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      // Limpar configuração do servidor
+      await ConnectionConfigService.clearConfig();
+      
+      // Resetar navegação completamente e ir para tela de configuração como root
+      // allowBack: true para poder voltar para login após configurar
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const AdaptiveLayout(
+              child: ServerConfigScreen(allowBack: true),
+            ),
+          ),
+          (route) => false, // Remove todas as rotas anteriores
+        );
+      }
+    }
   }
   
 }

@@ -253,7 +253,7 @@ jobs:
           
           if ($buildMode -eq "release") {
             Write-Host "Building in RELEASE mode (main branch)"
-            flutter build windows --release --dart-define=FLAVOR=$flavor
+          flutter build windows --release --dart-define=FLAVOR=$flavor
           } else {
             Write-Host "Building in DEBUG mode (develop branch)"
             flutter build windows --debug --dart-define=FLAVOR=$flavor

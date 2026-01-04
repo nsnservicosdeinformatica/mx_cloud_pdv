@@ -219,16 +219,109 @@ jobs:
               "  static PaymentTransactionData fromStoneTransaction(dynamic transaction) {",
               "    throw UnimplementedError('Stone Transaction Mapper não disponível no Windows');",
               "  }",
+              "  ",
+              "  /// Stub - lança erro pois Stone SDK não está disponível no Windows",
+              "  static PaymentTransactionData fromStoneMetadata(Map<String, dynamic> metadata) {",
+              "    throw UnimplementedError('Stone Transaction Mapper não disponível no Windows');",
+              "  }",
               "}"
             )
             Set-Content -Path $stoneMapperPath -Value ($stubLines -join "`r`n")
             Write-Host "   ✅ Stub criado: $stoneMapperPath"
           }
           
+          # Stub para print_provider_registry.dart (remove import do loader)
+          $printRegistryPath = "lib/data/adapters/printing/print_provider_registry.dart"
+          if (Test-Path $printRegistryPath) {
+            Copy-Item $printRegistryPath "$printRegistryPath.bak"
+            $stubLines = @(
+              "import '../../../../core/printing/print_provider.dart';",
+              "import 'package:flutter/foundation.dart';",
+              "import 'providers/elgin_thermal_adapter.dart';",
+              "import 'providers/pdf_printer_adapter.dart';",
+              "import '../../../../core/printing/print_config.dart';",
+              "import '../../../../core/config/flavor_config.dart';",
+              "",
+              "/// Cria o adapter Stone Thermal - STUB para Windows (não disponível)",
+              "PrintProvider _createStoneThermalAdapter(Map<String, dynamic>? settings) {",
+              "  // No Windows, o Stone Thermal Adapter não está disponível",
+              "  throw UnimplementedError('Stone Thermal Adapter não disponível no Windows');",
+              "}",
+              "",
+              "/// Registry para gerenciar providers de impressão",
+              "class PrintProviderRegistry {",
+              "  static final Map<String, PrintProvider Function(Map<String, dynamic>?)> _factories = {};",
+              "  static final Map<String, PrintProvider> _instances = {};",
+              "  ",
+              "  /// Registra um provider factory",
+              "  static void registerProvider(",
+              "    String key,",
+              "    PrintProvider Function(Map<String, dynamic>?) factory,",
+              "  ) {",
+              "    _factories[key] = factory;",
+              "    debugPrint('✅ Print provider registrado: `$key`');",
+              "  }",
+              "  ",
+              "  /// Obtém um provider pelo key",
+              "  static PrintProvider? getProvider(String key, {Map<String, dynamic>? settings}) {",
+              "    // Verifica se já existe instância",
+              "    if (_instances.containsKey(key)) {",
+              "      return _instances[key];",
+              "    }",
+              "    ",
+              "    // Cria nova instância",
+              "    final factory = _factories[key];",
+              "    if (factory == null) {",
+              "      debugPrint('⚠️ Print provider não encontrado: `$key`');",
+              "      return null;",
+              "    }",
+              "    ",
+              "    final provider = factory(settings);",
+              "    _instances[key] = provider;",
+              "    return provider;",
+              "  }",
+              "  ",
+              "  /// Registra todos os providers disponíveis baseado na configuração",
+              "  static Future<void> registerAll(PrintConfig config) async {",
+              "    // PDF sempre disponível",
+              "    registerProvider('pdf', (_) => PDFPrinterAdapter());",
+              "    ",
+              "    if (config.canUseProvider('stone_thermal')) {",
+              "      // No Windows, o Stone Thermal não está disponível",
+              "      debugPrint('ℹ️ Stone Thermal Adapter não registrado (não disponível no Windows)');",
+              "    }",
+              "    ",
+              "    if (config.canUseProvider('elgin_thermal')) {",
+              "      registerProvider('elgin_thermal', (settings) {",
+              "        return ElginThermalAdapter(settings: settings);",
+              "      });",
+              "    }",
+              "    ",
+              "    debugPrint('📦 Total de print providers registrados: `${_factories.length}`');",
+              "  }",
+              "  ",
+              "  /// Lista todos os providers registrados",
+              "  static List<String> getRegisteredProviders() {",
+              "    return _factories.keys.toList();",
+              "  }",
+              "  ",
+              "  /// Limpa instâncias (útil para testes)",
+              "  static void clear() {",
+              "    _instances.clear();",
+              "  }",
+              "}"
+            )
+            Set-Content -Path $printRegistryPath -Value ($stubLines -join "`r`n")
+            Write-Host "   ✅ Stub criado: $printRegistryPath (import do loader removido)"
+          }
+          
           Write-Host ""
           Write-Host "✅ Preparação concluída"
           Write-Host "   O pacote stone_payments NÃO será incluído no build do Windows"
 
+      - name: Clean Flutter build cache
+        run: flutter clean
+      
       - name: Install dependencies
         run: flutter pub get
 
@@ -283,7 +376,8 @@ jobs:
             "lib/data/adapters/payment/providers/stone_pos_adapter.dart",
             "lib/data/adapters/printing/providers/stone_thermal_adapter.dart",
             "lib/data/adapters/printing/providers/stone_thermal_adapter_loader.dart",
-            "lib/data/adapters/payment/providers/mappers/stone_transaction_mapper.dart"
+            "lib/data/adapters/payment/providers/mappers/stone_transaction_mapper.dart",
+            "lib/data/adapters/printing/print_provider_registry.dart"
           )
           
           foreach ($stubPath in $stubPaths) {

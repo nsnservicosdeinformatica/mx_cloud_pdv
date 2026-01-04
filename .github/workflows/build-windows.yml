@@ -27,7 +27,9 @@ jobs:
     name: Build Windows App
     runs-on: windows-latest
     env:
-      FLAVOR: ${{ github.event.inputs.flavor || 'mobile' }}
+      # CRÍTICO: Windows sempre usa flavor "mobile" porque não suporta SDK Stone
+      # Mesmo que o input seja "stoneP2", forçamos "mobile" para evitar problemas de DLL
+      FLAVOR: 'mobile'
       BUILD_MODE: ${{ github.ref == 'refs/heads/main' && 'release' || 'debug' }}
       BUILD_TYPE: ${{ github.ref == 'refs/heads/main' && 'Release' || 'Debug' }}
     
@@ -57,6 +59,17 @@ jobs:
           Write-Host "   O pacote stone_payments não tem suporte Windows"
           Write-Host "   Removendo do pubspec.yaml e criando stubs"
           Write-Host "   O pacote NÃO será incluído no executável Windows"
+          Write-Host ""
+          Write-Host "   IMPORTANTE: Windows sempre usa flavor 'mobile'"
+          Write-Host "   Mesmo que o input seja 'stoneP2', forçamos 'mobile'"
+          Write-Host "   Isso evita que o Flutter registre o plugin"
+          Write-Host "   no generated_plugin_registrant.cc, prevenindo erro de DLL"
+          
+          # Força flavor para mobile no Windows (não suporta SDK Stone)
+          $env:FLAVOR = "mobile"
+          Write-Host ""
+          Write-Host "✅ Flavor forçado para 'mobile' no Windows"
+          Write-Host ""
           
           # Remove stone_payments do pubspec.yaml
           Copy-Item pubspec.yaml pubspec.yaml.bak
@@ -287,7 +300,7 @@ jobs:
               "    registerProvider('pdf', (_) => PDFPrinterAdapter());",
               "    ",
               "    if (config.canUseProvider('stone_thermal')) {",
-              "      // No Windows, o Stone Thermal não está disponível",
+              "      // No Windows, o Stone Thermal não está disponível (mesmo se flavor for stoneP2)",
               "      debugPrint('ℹ️ Stone Thermal Adapter não registrado (não disponível no Windows)');",
               "    }",
               "    ",
@@ -330,21 +343,23 @@ jobs:
 
       - name: Build Windows
         run: |
-          $flavor = "$env:FLAVOR"
+          # CRÍTICO: Windows sempre usa flavor "mobile" (não suporta SDK Stone)
+          $flavor = "mobile"
           $buildMode = "$env:BUILD_MODE"
           $buildType = "$env:BUILD_TYPE"
-          
-          if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
-            $flavor = "mobile"
-          }
           
           Write-Host "=========================================="
           Write-Host "BUILD CONFIGURATION"
           Write-Host "Branch: ${{ github.ref }}"
-          Write-Host "Flavor: $flavor"
+          Write-Host "Flavor: $flavor (FORÇADO para mobile no Windows)"
           Write-Host "Build Mode: $buildMode"
           Write-Host "Build Type: $buildType"
           Write-Host "=========================================="
+          Write-Host ""
+          Write-Host "⚠️ IMPORTANTE: Windows sempre usa flavor 'mobile'"
+          Write-Host "   Mesmo que o input seja 'stoneP2', forçamos 'mobile'"
+          Write-Host "   porque o Windows não suporta o SDK Stone"
+          Write-Host ""
           
           if ($buildMode -eq "release") {
             Write-Host "Building in RELEASE mode (main branch)"
@@ -486,13 +501,10 @@ jobs:
         run: |
           $versionLine = Get-Content pubspec.yaml | Select-String 'version:'
           $version = ($versionLine.Line -split ':')[1].Trim()
-          $flavor = "$env:FLAVOR"
+          # Windows sempre usa flavor "mobile" (não suporta SDK Stone)
+          $flavor = "mobile"
           $buildMode = "$env:BUILD_MODE"
           $buildType = "$env:BUILD_TYPE"
-          
-          if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
-            $flavor = "mobile"
-          }
           
           $zipName = "mx_cloud_pdv_windows_${flavor}_${buildMode}_${version}.zip"
           
@@ -528,7 +540,8 @@ jobs:
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build-${{ env.FLAVOR }}-${{ env.BUILD_MODE }}
+          # Windows sempre usa flavor "mobile"
+          name: windows-build-mobile-${{ env.BUILD_MODE }}
           path: |
             build/windows/x64/runner/${{ env.BUILD_TYPE }}/**
             *.zip

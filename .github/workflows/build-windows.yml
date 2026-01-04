@@ -48,6 +48,88 @@ jobs:
       - name: Create Windows platform files (if needed)
         run: flutter create --platforms=windows .
 
+      - name: Prepare Windows build (remove stone_payments)
+        run: |
+          Write-Host "=========================================="
+          Write-Host "PREPARING WINDOWS BUILD"
+          Write-Host "REMOVING STONE_PAYMENTS PACKAGE"
+          Write-Host "=========================================="
+          Write-Host "   O pacote stone_payments não tem suporte Windows"
+          Write-Host "   Removendo do pubspec.yaml e criando stubs"
+          Write-Host "   O pacote NÃO será incluído no executável Windows"
+          
+          # Remove stone_payments do pubspec.yaml
+          Copy-Item pubspec.yaml pubspec.yaml.bak
+          Write-Host "   Backup criado: pubspec.yaml.bak"
+          
+          $content = Get-Content pubspec.yaml -Raw
+          $content = $content -replace '\s*stone_payments:\s*[^\r\n]+[\r\n]*', ''
+          $content = $content -replace '# Payment SDKs \(condicionais por flavor\)[\r\n]*', ''
+          $content = $content -replace '# stone_payments: necessário para compilar código Dart[\r\n]*', ''
+          $content = $content -replace '# As dependências nativas serão excluídas no build\.gradle\.kts para o flavor mobile[\r\n]*', ''
+          $content = $content -replace "(\r?\n\s*){4,}", "`r`n`r`n`r`n"
+          Set-Content -Path pubspec.yaml -Value $content -NoNewline
+          Write-Host "✅ stone_payments removido do pubspec.yaml"
+          
+          # Cria stubs dos arquivos que importam stone_payments
+          Write-Host ""
+          Write-Host "   Criando stubs dos arquivos que importam stone_payments..."
+          $stoneAdapterPath = "lib/data/adapters/payment/providers/stone_pos_adapter.dart"
+          if (Test-Path $stoneAdapterPath) {
+            Copy-Item $stoneAdapterPath "$stoneAdapterPath.bak"
+            $stubContent = @"
+// STUB: Este arquivo substitui stone_pos_adapter.dart quando stone_payments não está disponível (Windows)
+import '../../../../core/payment/payment_provider.dart';
+import '../../../../core/payment/payment_ui_notifier.dart';
+import 'package:flutter/foundation.dart';
+
+/// Stub do Stone POS Adapter (não disponível no Windows)
+class StonePOSAdapter implements PaymentProvider {
+  final Map<String, dynamic>? _settings;
+  
+  StonePOSAdapter({Map<String, dynamic>? settings}) : _settings = settings;
+  
+  @override
+  String get providerName => 'Stone';
+  
+  @override
+  PaymentType get paymentType => PaymentType.pos;
+  
+  @override
+  bool get isAvailable => false;
+  
+  @override
+  bool get requiresUserInteraction => true;
+  
+  @override
+  Future<void> initialize() async {
+    throw UnimplementedError('Stone POS Adapter não disponível no Windows');
+  }
+  
+  @override
+  Future<PaymentResult> processPayment({
+    required double amount,
+    required String vendaId,
+    Map<String, dynamic>? additionalData,
+    PaymentUINotifier? uiNotifier,
+  }) async {
+    throw UnimplementedError('Stone POS Adapter não disponível no Windows');
+  }
+  
+  @override
+  Future<void> disconnect() async {
+    // Nada a fazer
+  }
+}
+"@
+            Set-Content -Path $stoneAdapterPath -Value $stubContent -NoNewline
+            Write-Host "   ✅ Stub criado: $stoneAdapterPath"
+          }
+          
+          Write-Host ""
+          Write-Host "✅ Preparação concluída"
+          Write-Host "   O pacote stone_payments NÃO será incluído no build do Windows"
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -81,167 +163,38 @@ jobs:
           }
         continue-on-error: false
 
-      - name: Remove stone_payments plugin (Windows fix)
+      - name: Verify stone_payments was removed
         run: |
           Write-Host "=========================================="
-          Write-Host "REMOVING STONE_PAYMENTS PLUGIN"
+          Write-Host "VERIFYING STONE_PAYMENTS REMOVAL"
           Write-Host "=========================================="
           
-          # Verifica se o build foi feito
-          if (-not (Test-Path "build\windows")) {
-            Write-Host "❌ Diretório build\windows não existe"
-            Write-Host "   O build do Flutter pode não ter sido executado"
-            Write-Host "   Continuando sem modificar..."
-            exit 0
-          }
-          
-          # Busca o arquivo em todos os locais possíveis
-          Write-Host "🔍 Procurando arquivo generated_plugin_registrant.cc..."
-          
-          $pluginFile = $null
-          
-          # Busca recursiva primeiro (mais confiável)
-          if (Test-Path "build\windows") {
-            $foundFiles = Get-ChildItem "build\windows" -Recurse -Filter "generated_plugin_registrant.cc" -ErrorAction SilentlyContinue
-            if ($foundFiles -and $foundFiles.Count -gt 0) {
-              $pluginFile = $foundFiles[0].FullName
-              Write-Host "✅ Arquivo encontrado via busca recursiva: $pluginFile"
-            }
-          }
-          
-          # Se não encontrou, tenta os caminhos esperados
-          if (-not $pluginFile) {
-            $searchPaths = @(
-              "build\windows\flutter\generated_plugin_registrant.cc",
-              "build\windows\x64\flutter\generated_plugin_registrant.cc",
-              "windows\flutter\generated_plugin_registrant.cc"
-            )
-            
-            foreach ($path in $searchPaths) {
-              if (Test-Path $path) {
-                $pluginFile = (Resolve-Path $path).Path
-                Write-Host "✅ Arquivo encontrado em: $pluginFile"
-                break
-              }
-            }
-          }
-          
-          $buildType = "$env:BUILD_TYPE"
-          
-          if (-not $pluginFile) {
-            Write-Host "⚠️ Arquivo generated_plugin_registrant.cc não encontrado"
-            Write-Host "   Verificando estrutura de diretórios..."
-            if (Test-Path "build\windows") {
-              Write-Host "   Diretório build\windows existe"
-              Write-Host "   Conteúdo de build\windows:"
-              Get-ChildItem "build\windows" -Directory | ForEach-Object { Write-Host "     - $($_.Name)" }
-              Write-Host "   Buscando arquivos *plugin*:"
-              $pluginFiles = Get-ChildItem "build\windows" -Recurse -Filter "*plugin*" -ErrorAction SilentlyContinue
-              if ($pluginFiles) {
-                $pluginFiles | ForEach-Object { Write-Host "     - $($_.FullName)" }
-              } else {
-                Write-Host "     Nenhum arquivo *plugin* encontrado"
-              }
-            }
-            Write-Host "   ⚠️ Continuando sem modificar (plugin pode não estar sendo registrado ou build incompleto)"
-            Write-Host "   Isso pode significar que:"
-            Write-Host "     1. O plugin stone_payments não está sendo incluído no build"
-            Write-Host "     2. O build ainda não foi concluído"
-            Write-Host "     3. O arquivo está em um local diferente"
-            Write-Host "   Se o erro de DLL persistir, verifique manualmente o arquivo gerado"
+          # Verifica se stone_payments foi removido do pubspec.yaml
+          $pubspecContent = Get-Content pubspec.yaml -Raw
+          if ($pubspecContent -match 'stone_payments') {
+            Write-Host "❌ ERRO: stone_payments ainda está no pubspec.yaml!"
+            Write-Host "   O build pode falhar ou incluir o SDK Stone"
+            exit 1
           } else {
-            Write-Host "🔧 Removendo plugin stone_payments do registro..."
-            
-            # Cria backup
-            $backupFile = "$pluginFile.bak"
-            Copy-Item $pluginFile $backupFile
-            Write-Host "   Backup criado: $backupFile"
-            
-            # Lê o conteúdo do arquivo
-            $content = Get-Content $pluginFile -Raw
-            
-            # Remove includes do stone_payments
-            $content = $content -replace '#include <stone_payments/stone_payments_plugin\.h>', '// #include <stone_payments/stone_payments_plugin.h> // Removido: não suporta Windows'
-            
-            # Remove registro do plugin (linha completa - pode estar em múltiplas linhas)
-            $content = $content -replace 'stone_payments::StonePaymentsPluginRegisterWithRegistrar\([^)]*\);', '// stone_payments plugin removido (não suporta Windows)'
-            
-            # Remove linhas vazias duplicadas
-            $content = $content -replace "(\r?\n\s*){3,}", "`r`n`r`n"
-            
-            # Salva o arquivo modificado
-            Set-Content -Path $pluginFile -Value $content -NoNewline
-            
-            Write-Host "✅ Plugin stone_payments removido do registro"
-            Write-Host "   Arquivo modificado: $pluginFile"
-            
-            # O arquivo foi modificado, agora precisa recompilar o executável
-            # Como o Flutter já compilou, vamos tentar recompilar apenas o executável
-            # usando o arquivo modificado, sem fazer flutter build novamente
-            Write-Host "✅ Arquivo modificado com sucesso"
-            Write-Host "   O plugin stone_payments foi removido do registro"
-            Write-Host ""
-            Write-Host "🔨 Tentando recompilar apenas o executável..."
-            
-            # O arquivo foi modificado, mas o executável já foi compilado com o plugin
-            # A melhor solução é fazer build novamente, mas protegendo o arquivo modificado
-            # para que ele não seja regenerado pelo Flutter
-            Write-Host "🔨 Recompilando com arquivo modificado..."
-            
-            # Protege o arquivo modificado antes de fazer build novamente
-            $protectedFile = "$pluginFile.protected"
-            Copy-Item $pluginFile $protectedFile -Force
-            Write-Host "   Arquivo protegido: $protectedFile"
-            
-            # Faz build novamente (o Flutter pode regenerar o arquivo durante o build)
-            $flavor = "$env:FLAVOR"
-            $buildMode = "$env:BUILD_MODE"
-            if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
-              $flavor = "mobile"
-            }
-            
-            Write-Host "   Executando build para recompilar com arquivo modificado..."
-            if ($buildMode -eq "release") {
-              flutter build windows --release --dart-define=FLAVOR=$flavor
-            } else {
-              flutter build windows --debug --dart-define=FLAVOR=$flavor
-            }
-            
-            # Aguarda um pouco para garantir que o build terminou completamente
-            Start-Sleep -Seconds 2
-            
-            # Restaura o arquivo modificado imediatamente após o build
-            # (o Flutter pode ter regenerado durante o build)
-            if (Test-Path $protectedFile) {
-              Copy-Item $protectedFile $pluginFile -Force
-              Remove-Item $protectedFile
-              Write-Host "   ✅ Arquivo modificado restaurado após build"
-              
-              # Verifica se o arquivo ainda tem o plugin e remove novamente se necessário
-              $contentCheck = Get-Content $pluginFile -Raw
-              if ($contentCheck -match 'stone_payments') {
-                Write-Host "   ⚠️ Arquivo foi regenerado, removendo plugin novamente..."
-                $contentCheck = $contentCheck -replace '#include <stone_payments/stone_payments_plugin\.h>', '// #include <stone_payments/stone_payments_plugin.h> // Removido: não suporta Windows'
-                $contentCheck = $contentCheck -replace 'stone_payments::StonePaymentsPluginRegisterWithRegistrar\([^)]*\);', '// stone_payments plugin removido (não suporta Windows)'
-                $contentCheck = $contentCheck -replace "(\r?\n\s*){3,}", "`r`n`r`n"
-                Set-Content -Path $pluginFile -Value $contentCheck -NoNewline
-                Write-Host "   ✅ Plugin removido novamente"
-                
-                # Recompila apenas o executável usando CMake se possível
-                $cmakeBuildDir = "build\windows"
-                if (Test-Path "$cmakeBuildDir\CMakeCache.txt") {
-                  Write-Host "   🔨 Recompilando executável final..."
-                  cd $cmakeBuildDir
-                  cmake --build . --config $buildType 2>&1 | Out-String
-                  cd ..\..
-                  Write-Host "   ✅ Executável recompilado"
-                }
-              }
-            }
-            
-            Write-Host "✅ Build concluído com plugin stone_payments removido"
+            Write-Host "✅ stone_payments não encontrado no pubspec.yaml"
           }
-        continue-on-error: true  # Não falha o build se o arquivo não for encontrado
+          
+          # Verifica se o stub foi criado
+          $stubPath = "lib/data/adapters/payment/providers/stone_pos_adapter.dart"
+          if (Test-Path $stubPath) {
+            $stubContent = Get-Content $stubPath -Raw
+            if ($stubContent -match 'STUB') {
+              Write-Host "✅ Stub do stone_pos_adapter.dart criado corretamente"
+            } else {
+              Write-Host "⚠️ stone_pos_adapter.dart existe mas não parece ser um stub"
+            }
+          } else {
+            Write-Host "⚠️ stone_pos_adapter.dart não encontrado"
+          }
+          
+          Write-Host ""
+          Write-Host "✅ Verificação concluída"
+          Write-Host "   O pacote stone_payments NÃO será incluído no executável Windows"
 
       - name: Create ZIP artifact
         run: |

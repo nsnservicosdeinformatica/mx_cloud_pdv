@@ -117,8 +117,10 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
     return _servicesProvider.vendaService;
   }
 
-  ConfiguracaoRestauranteDto? get _configuracaoRestaurante {
-    return _servicesProvider.configuracaoRestaurante;
+  ConfiguracaoRestauranteDto? _configuracaoRestaurante;
+  
+  void _atualizarConfiguracao(ServicesProvider servicesProvider) {
+    _configuracaoRestaurante = servicesProvider.configuracaoRestaurante;
   }
 
   bool get _mostrarSelecaoComanda {
@@ -140,13 +142,29 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
   bool get _mostrarSelecaoMesa {
     // Se apenasComanda for true, nunca mostra mesa
     if (widget.apenasComanda) {
+      debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: false (apenasComanda=true)');
       return false;
     }
     // Se apenasMesa for true, sempre mostra mesa
     if (widget.apenasMesa) {
+      debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: true (apenasMesa=true)');
       return true;
     }
-    // Caso contrário, sempre mostra mesa
+    // Verifica configuração: se controle é apenas por comanda, não mostra mesa
+    if (_configuracaoRestaurante != null) {
+      final isControlePorComanda = _configuracaoRestaurante!.isControlePorComanda;
+      debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: Verificando configuração');
+      debugPrint('  - Configuração encontrada: ${_configuracaoRestaurante!.tipoControleVenda}');
+      debugPrint('  - isControlePorComanda: $isControlePorComanda');
+      if (isControlePorComanda) {
+        debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: false (controle apenas por comanda)');
+        return false;
+      }
+    } else {
+      debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: Configuração não encontrada, mostrando mesa');
+    }
+    // Caso contrário, mostra mesa
+    debugPrint('🔵 [SelecionarMesaComandaDialog] _mostrarSelecaoMesa: true (padrão)');
     return true;
   }
 
@@ -168,6 +186,19 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
     debugPrint('  - mesaIdPreSelecionada: ${widget.mesaIdPreSelecionada}');
     debugPrint('  - comandaIdPreSelecionada: ${widget.comandaIdPreSelecionada}');
     debugPrint('  - permiteVendaAvulsa: ${widget.permiteVendaAvulsa}');
+    debugPrint('  - apenasMesa: ${widget.apenasMesa}');
+    debugPrint('  - apenasComanda: ${widget.apenasComanda}');
+    
+    // Debug da configuração
+    final config = _configuracaoRestaurante;
+    if (config != null) {
+      debugPrint('  - Configuração encontrada: tipoControleVenda=${config.tipoControleVenda}');
+      debugPrint('    - isControlePorMesa: ${config.isControlePorMesa}');
+      debugPrint('    - isControlePorComanda: ${config.isControlePorComanda}');
+      debugPrint('    - isControlePorMesaOuComanda: ${config.isControlePorMesaOuComanda}');
+    } else {
+      debugPrint('  - ⚠️ Configuração NÃO encontrada!');
+    }
     
     // Verifica se precisa fazer busca inicial
     final precisaBuscar = widget.mesaIdPreSelecionada != null || widget.comandaIdPreSelecionada != null;
@@ -191,15 +222,19 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
         futures.add(_buscarMesaPreSelecionada());
       }
       
-      // IMPORTANTE: Não carrega comanda pré-selecionada automaticamente
-      // A comanda só será selecionada se o usuário interagir explicitamente
-      // Se comandaIdPreSelecionada for fornecido, apenas busca o número para exibição inicial
+      // Se comandaIdPreSelecionada for fornecido, busca e seleciona a comanda
+      // Isso permite que quando há uma venda atual, a comanda já venha selecionada
       if (widget.comandaIdPreSelecionada != null) {
-        futures.add(_buscarNumeroComandaPreSelecionada());
+        futures.add(_buscarComandaPreSelecionada());
       }
       
       // Aguarda todas as buscas terminarem
       await Future.wait(futures);
+      
+      // Após carregar, verifica se pode confirmar automaticamente
+      if (mounted) {
+        _verificarEConfirmarAutomaticamente();
+      }
     } catch (e) {
       debugPrint('Erro ao carregar dados iniciais: $e');
     } finally {
@@ -211,22 +246,40 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
     }
   }
   
-  /// Busca apenas o número da comanda pré-selecionada para exibição inicial
-  /// Não define _comandaSelecionada - isso só acontece se o usuário confirmar explicitamente
-  Future<void> _buscarNumeroComandaPreSelecionada() async {
-    try {
-      final response = await _comandaService.getComandaById(widget.comandaIdPreSelecionada!);
-      if (response.success && response.data != null && mounted) {
-        setState(() {
-          _comandaNumeroPreSelecionada = response.data!.numero;
-          // NÃO define _comandaSelecionada - apenas armazena o número para exibição
-        });
-      }
-    } catch (e) {
-      debugPrint('Erro ao buscar número da comanda pré-selecionada: $e');
+  /// Verifica se os campos obrigatórios estão preenchidos e confirma automaticamente
+  void _verificarEConfirmarAutomaticamente() {
+    if (_configuracaoRestaurante == null) {
+      return; // Não pode confirmar sem configuração
+    }
+    
+    final isControleApenasMesa = _configuracaoRestaurante!.isControlePorMesa;
+    final isControleApenasComanda = _configuracaoRestaurante!.isControlePorComanda;
+    final isControleMesaOuComanda = _configuracaoRestaurante!.isControlePorMesaOuComanda;
+    
+    bool podeConfirmar = false;
+    
+    if (isControleApenasMesa) {
+      // Controle apenas por Mesa: precisa ter mesa selecionada
+      podeConfirmar = _mesaSelecionada != null;
+    } else if (isControleApenasComanda) {
+      // Controle apenas por Comanda: precisa ter comanda selecionada
+      podeConfirmar = _comandaSelecionada != null;
+    } else if (isControleMesaOuComanda) {
+      // Controle Mesa ou Comanda: precisa ter ambos selecionados
+      podeConfirmar = _mesaSelecionada != null && _comandaSelecionada != null;
+    }
+    
+    if (podeConfirmar) {
+      debugPrint('✅ [SelecionarMesaComandaDialog] Campos obrigatórios preenchidos, confirmando automaticamente...');
+      // Usa Future.microtask para garantir que confirma após o setState
+      Future.microtask(() {
+        if (mounted) {
+          _confirmar();
+        }
+      });
     }
   }
-
+  
   Future<void> _buscarMesaPreSelecionada() async {
     try {
       final response = await _mesaService.getMesaById(widget.mesaIdPreSelecionada!);
@@ -441,38 +494,50 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
         });
 
         // Buscar venda aberta para preencher mesa automaticamente
-        try {
-          final vendaResponse = await _vendaService.getVendaAbertaPorComanda(comandaExata.id);
-        if (vendaResponse.success && vendaResponse.data != null && vendaResponse.data!.mesaId != null) {
-          final venda = vendaResponse.data!;
-            _mesaIdVinculadaComanda = venda.mesaId;
-          
-            // Validação: se já tem mesa selecionada e é diferente da vinculada, limpa comanda
-          if (_mesaSelecionada != null && _mesaSelecionada!.id != venda.mesaId) {
-            setState(() {
-              _comandaSelecionada = null;
-              _mesaIdVinculadaComanda = null;
-            });
+        // MAS: não preenche mesa se controle é apenas por comanda
+        final isControleApenasComanda = _configuracaoRestaurante != null && 
+                                         _configuracaoRestaurante!.isControlePorComanda;
+        
+        if (!isControleApenasComanda) {
+          try {
+            final vendaResponse = await _vendaService.getVendaAbertaPorComanda(comandaExata.id);
+            if (vendaResponse.success && vendaResponse.data != null && vendaResponse.data!.mesaId != null) {
+              final venda = vendaResponse.data!;
+              _mesaIdVinculadaComanda = venda.mesaId;
             
-            await AppDialog.showError(
-              context: context,
-              title: 'Comanda já vinculada',
-                message: 'A comanda ${comandaExata.numero} já está vinculada à mesa ${venda.mesaNome}.',
-            );
-              return;
-          }
-          
-            // Preenche mesa automaticamente se não tinha mesa selecionada
-          final mesaResponse = await _mesaService.getMesaById(venda.mesaId!);
-          if (mesaResponse.success && mesaResponse.data != null) {
-            setState(() {
-              _mesaSelecionada = mesaResponse.data;
-            });
+              // Validação: se já tem mesa selecionada e é diferente da vinculada, limpa comanda
+              if (_mesaSelecionada != null && _mesaSelecionada!.id != venda.mesaId) {
+                setState(() {
+                  _comandaSelecionada = null;
+                  _mesaIdVinculadaComanda = null;
+                });
+                
+                await AppDialog.showError(
+                  context: context,
+                  title: 'Comanda já vinculada',
+                  message: 'A comanda ${comandaExata.numero} já está vinculada à mesa ${venda.mesaNome}.',
+                );
+                return;
+              }
+            
+              // Preenche mesa automaticamente se não tinha mesa selecionada
+              final mesaResponse = await _mesaService.getMesaById(venda.mesaId!);
+              if (mesaResponse.success && mesaResponse.data != null) {
+                setState(() {
+                  _mesaSelecionada = mesaResponse.data;
+                });
+              }
             }
+          } catch (e) {
+            debugPrint('⚠️ Erro ao buscar venda aberta: $e');
           }
-        } catch (e) {
-          debugPrint('⚠️ Erro ao buscar venda aberta: $e');
-          }
+        } else {
+          // Se controle é apenas por comanda, limpa qualquer mesa vinculada
+          setState(() {
+            _mesaIdVinculadaComanda = null;
+            _mesaSelecionada = null;
+          });
+        }
         } else {
         // Comanda não encontrada - limpa seleção e mostra erro
         setState(() {
@@ -520,21 +585,33 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
   }
 
   void _confirmar() async {
-    if (_comandaSelecionada != null && _mesaIdVinculadaComanda != null) {
-      final mesaIdSelecionada = _mesaSelecionada?.id ?? widget.mesaIdPreSelecionada;
-      if (mesaIdSelecionada != null && mesaIdSelecionada != _mesaIdVinculadaComanda) {
-        await AppDialog.showError(
-          context: context,
-          title: 'Comanda já vinculada',
-          message: 'A comanda ${_comandaSelecionada!.numero} já está vinculada a outra mesa.',
-        );
-        return;
+    // Se controle é apenas por comanda, força mesa como null
+    final isControleApenasComanda = _configuracaoRestaurante != null && 
+                                    _configuracaoRestaurante!.isControlePorComanda;
+    
+    if (isControleApenasComanda) {
+      // Força mesa como null quando controle é apenas por comanda
+      _mesaSelecionada = null;
+      _mesaIdVinculadaComanda = null;
+    } else {
+      // Validação normal de comanda vinculada (apenas se não for controle apenas por comanda)
+      if (_comandaSelecionada != null && _mesaIdVinculadaComanda != null) {
+        final mesaIdSelecionada = _mesaSelecionada?.id ?? widget.mesaIdPreSelecionada;
+        if (mesaIdSelecionada != null && mesaIdSelecionada != _mesaIdVinculadaComanda) {
+          await AppDialog.showError(
+            context: context,
+            title: 'Comanda já vinculada',
+            message: 'A comanda ${_comandaSelecionada!.numero} já está vinculada a outra mesa.',
+          );
+          return;
+        }
       }
     }
 
     // Se há mesa pré-selecionada mas não foi carregada ainda, tenta carregar antes de retornar
-    MesaListItemDto? mesaFinal = _mesaSelecionada;
-    if (mesaFinal == null && widget.mesaIdPreSelecionada != null) {
+    // MAS: ignora se controle é apenas por comanda
+    MesaListItemDto? mesaFinal = isControleApenasComanda ? null : _mesaSelecionada;
+    if (!isControleApenasComanda && mesaFinal == null && widget.mesaIdPreSelecionada != null) {
       try {
         final response = await _mesaService.getMesaById(widget.mesaIdPreSelecionada!);
         if (response.success && response.data != null) {
@@ -551,7 +628,8 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
     ComandaListItemDto? comandaFinal = _comandaSelecionada;
 
     debugPrint('✅ [SelecionarMesaComandaDialog] Confirmando seleção:');
-    debugPrint('  - Mesa final: ${mesaFinal?.id} (${mesaFinal?.numero})');
+    debugPrint('  - Controle apenas por comanda: $isControleApenasComanda');
+    debugPrint('  - Mesa final: ${mesaFinal?.id} (${mesaFinal?.numero ?? "null"})');
     debugPrint('  - Comanda final: ${comandaFinal?.id} (${comandaFinal?.numero ?? "null"})');
     debugPrint('  - Mesa pré-selecionada: ${widget.mesaIdPreSelecionada}');
     debugPrint('  - Comanda pré-selecionada: ${widget.comandaIdPreSelecionada}');
@@ -559,8 +637,8 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
 
     Navigator.of(context).pop(
       SelecaoMesaComandaResult(
-        mesa: mesaFinal,
-        comanda: comandaFinal, // Será null se o usuário não selecionou ou removeu a comanda
+        mesa: mesaFinal, // Será null se controle é apenas por comanda
+        comanda: comandaFinal,
       ),
     );
   }
@@ -574,6 +652,24 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
     final adaptive = AdaptiveLayoutProvider.of(context);
     if (adaptive == null) return const SizedBox.shrink();
 
+    // Usa Consumer para reagir a mudanças na configuração
+    return Consumer<ServicesProvider>(
+      builder: (context, servicesProvider, _) {
+        // Atualiza a referência da configuração
+        _atualizarConfiguracao(servicesProvider);
+        final configAtual = _configuracaoRestaurante;
+        if (configAtual != null) {
+          debugPrint('🔵 [SelecionarMesaComandaDialog] build - Configuração: tipoControleVenda=${configAtual.tipoControleVenda}, isControlePorComanda=${configAtual.isControlePorComanda}');
+        } else {
+          debugPrint('🔵 [SelecionarMesaComandaDialog] build - ⚠️ Configuração NÃO encontrada!');
+        }
+        
+        return _buildContent(adaptive);
+      },
+    );
+  }
+  
+  Widget _buildContent(AdaptiveLayoutProvider adaptive) {
     final isMobile = adaptive.isMobile;
 
     if (isMobile) {
@@ -737,19 +833,27 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
           ),
           const SizedBox(height: 32),
           
-          // Ícone Mesa (oculto se apenasComanda for true)
-          if (_mostrarSelecaoMesa) ...[
-            _buildCardSelecao(
-              adaptive,
-              label: 'Mesa',
-              selecionado: _mesaSelecionada,
-              numero: _mesaSelecionada?.numero,
-              icon: Icons.table_restaurant,
-              cor: AppTheme.primaryColor,
-              onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
-              onRemover: _isLoadingInicial ? null : _removerMesa,
-            ),
-          ],
+          // Ícone Mesa (oculto se apenasComanda for true OU se controle é apenas por comanda)
+          // IMPORTANTE: Verifica novamente aqui para garantir que está correto
+          Builder(
+            builder: (context) {
+              final mostrarMesa = _mostrarSelecaoMesa;
+              debugPrint('🔵 [SelecionarMesaComandaDialog] build mobile - mostrarMesa: $mostrarMesa');
+              if (!mostrarMesa) {
+                return const SizedBox.shrink();
+              }
+              return _buildCardSelecao(
+                adaptive,
+                label: 'Mesa',
+                selecionado: _mesaSelecionada,
+                numero: _mesaSelecionada?.numero,
+                icon: Icons.table_restaurant,
+                cor: AppTheme.primaryColor,
+                onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
+                onRemover: _isLoadingInicial ? null : _removerMesa,
+              );
+            },
+          ),
           
           if (_mostrarSelecaoComanda) ...[
             const SizedBox(height: 24),
@@ -871,19 +975,27 @@ class _SelecionarMesaComandaDialogState extends State<SelecionarMesaComandaDialo
           ),
           const SizedBox(height: 40),
           
-          // Ícone Mesa (oculto se apenasComanda for true)
-          if (_mostrarSelecaoMesa) ...[
-            _buildCardSelecao(
-              adaptive,
-              label: 'Mesa',
-              selecionado: _mesaSelecionada,
-              numero: _mesaSelecionada?.numero,
-              icon: Icons.table_restaurant,
-              cor: AppTheme.primaryColor,
-              onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
-              onRemover: _isLoadingInicial ? null : _removerMesa,
-            ),
-          ],
+          // Ícone Mesa (oculto se apenasComanda for true OU se controle é apenas por comanda)
+          // IMPORTANTE: Verifica novamente aqui para garantir que está correto
+          Builder(
+            builder: (context) {
+              final mostrarMesa = _mostrarSelecaoMesa;
+              debugPrint('🔵 [SelecionarMesaComandaDialog] build desktop - mostrarMesa: $mostrarMesa');
+              if (!mostrarMesa) {
+                return const SizedBox.shrink();
+              }
+              return _buildCardSelecao(
+                adaptive,
+                label: 'Mesa',
+                selecionado: _mesaSelecionada,
+                numero: _mesaSelecionada?.numero,
+                icon: Icons.table_restaurant,
+                cor: AppTheme.primaryColor,
+                onTap: _isLoadingInicial ? null : _abrirEntradaMesa,
+                onRemover: _isLoadingInicial ? null : _removerMesa,
+              );
+            },
+          ),
           
           if (_mostrarSelecaoComanda) ...[
             const SizedBox(height: 32),

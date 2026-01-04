@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../../core/payment/payment_flow_state.dart';
 import '../../presentation/providers/payment_flow_provider.dart';
+import 'standard_loading_dialog.dart';
 
 /// Modal padrão para indicar o status do fluxo de pagamento
 /// 
@@ -108,6 +109,23 @@ class PaymentFlowStatusModal {
     final state = provider.currentState;
     final (icon, color, message, subtitle) = _getStatusInfo(state, provider);
 
+    // Se está processando, usa o componente padronizado de loading
+    if (state.isProcessing) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: StandardLoadingDialog(
+          message: message,
+          subtitle: subtitle,
+          loadingSize: 80.0,
+        ),
+      );
+    }
+
+    // Se não está processando (sucesso/erro), mostra Dialog com ícone e informações
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -117,29 +135,19 @@ class PaymentFlowStatusModal {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Ícone animado ou estático
-            if (state.isProcessing)
-              SizedBox(
-                width: 64,
-                height: 64,
-                child: CircularProgressIndicator(
-                  strokeWidth: 4,
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  icon,
-                  size: 32,
-                  color: color,
-                ),
+            // Ícone estático
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
               ),
+              child: Icon(
+                icon,
+                size: 32,
+                color: color,
+              ),
+            ),
             
             const SizedBox(height: 24),
             

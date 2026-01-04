@@ -11,7 +11,6 @@ import '../../data/services/core/venda_service.dart';
 import '../../data/services/core/nota_fiscal_service.dart';
 import '../../data/services/sync/sync_service.dart';
 import '../../data/services/sync/auto_sync_manager.dart';
-import '../../data/services/sync/api_local_sync_service.dart';
 import '../../data/repositories/produto_local_repository.dart';
 import '../../data/repositories/exibicao_produto_local_repository.dart';
 import '../../data/repositories/pedido_local_repository.dart';
@@ -72,7 +71,6 @@ class ServicesProvider extends ChangeNotifier {
   late final SyncService _syncService;
   late final SyncProvider _syncProvider;
   late final AutoSyncManager _autoSyncManager;
-  late final ApiLocalSyncService _apiLocalSyncService;
 
   // Cache de configuração do restaurante
   ConfiguracaoRestauranteDto? _configuracaoRestaurante;
@@ -129,11 +127,6 @@ class ServicesProvider extends ChangeNotifier {
       pedidoRepo: _pedidoLocalRepo,
     );
     
-    // Criar serviço de sincronização da API local
-    _apiLocalSyncService = ApiLocalSyncService(
-      apiClient: _authService.apiClient,
-    );
-    
     debugPrint('ServicesProvider criado com AuthService: ${_authService.hashCode}');
     debugPrint('ApiClient usado: ${_authService.apiClient.hashCode}');
   }
@@ -176,9 +169,6 @@ class ServicesProvider extends ChangeNotifier {
   
   /// Gerenciador de sincronização automática
   AutoSyncManager get autoSyncManager => _autoSyncManager;
-  
-  /// Serviço de sincronização da API local
-  ApiLocalSyncService get apiLocalSyncService => _apiLocalSyncService;
 
   // === CONFIGURAÇÃO DO RESTAURANTE ===
 
@@ -214,7 +204,12 @@ class ServicesProvider extends ChangeNotifier {
         // Salva localmente para uso futuro
         await _configuracaoRestauranteLocalRepo.salvar(response.data!);
         
-        debugPrint('✅ Configuração carregada do servidor e salva localmente: TipoControleVenda=${_configuracaoRestaurante!.tipoControleVenda} (${_configuracaoRestaurante!.controlePorMesa ? "PorMesa" : "PorComanda"})');
+        final tipoControle = _configuracaoRestaurante!.isControlePorMesa 
+            ? "PorMesa" 
+            : (_configuracaoRestaurante!.isControlePorComanda 
+                ? "PorComanda" 
+                : "PorMesaOuComanda");
+        debugPrint('✅ Configuração carregada do servidor e salva localmente: TipoControleVenda=${_configuracaoRestaurante!.tipoControleVenda} ($tipoControle)');
         
         notifyListeners();
       } else {

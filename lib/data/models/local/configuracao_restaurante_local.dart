@@ -42,9 +42,12 @@ class ConfiguracaoRestauranteLocal extends HiveObject {
   bool controlePorComanda;
 
   @HiveField(12)
-  DateTime createdAt;
+  bool controlePorMesaOuComanda;
 
   @HiveField(13)
+  DateTime createdAt;
+
+  @HiveField(14)
   DateTime? updatedAt;
 
   ConfiguracaoRestauranteLocal({
@@ -60,6 +63,7 @@ class ConfiguracaoRestauranteLocal extends HiveObject {
     required this.listaDisponivel,
     required this.controlePorMesa,
     required this.controlePorComanda,
+    required this.controlePorMesaOuComanda,
     required this.createdAt,
     this.updatedAt,
   });
@@ -79,6 +83,7 @@ class ConfiguracaoRestauranteLocal extends HiveObject {
       listaDisponivel: dto.listaDisponivel,
       controlePorMesa: dto.controlePorMesa,
       controlePorComanda: dto.controlePorComanda,
+      controlePorMesaOuComanda: dto.controlePorMesaOuComanda,
       createdAt: dto.createdAt,
       updatedAt: dto.updatedAt,
     );
@@ -99,6 +104,7 @@ class ConfiguracaoRestauranteLocal extends HiveObject {
       'listaDisponivel': listaDisponivel,
       'controlePorMesa': controlePorMesa,
       'controlePorComanda': controlePorComanda,
+      'controlePorMesaOuComanda': controlePorMesaOuComanda,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };

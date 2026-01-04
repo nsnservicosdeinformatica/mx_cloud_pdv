@@ -30,15 +30,16 @@ class ConfiguracaoRestauranteLocalAdapter
       listaDisponivel: fields[9] as bool,
       controlePorMesa: fields[10] as bool,
       controlePorComanda: fields[11] as bool,
-      createdAt: fields[12] as DateTime,
-      updatedAt: fields[13] as DateTime?,
+      controlePorMesaOuComanda: fields[12] as bool,
+      createdAt: fields[13] as DateTime,
+      updatedAt: fields[14] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ConfiguracaoRestauranteLocal obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(15)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -64,8 +65,10 @@ class ConfiguracaoRestauranteLocalAdapter
       ..writeByte(11)
       ..write(obj.controlePorComanda)
       ..writeByte(12)
-      ..write(obj.createdAt)
+      ..write(obj.controlePorMesaOuComanda)
       ..writeByte(13)
+      ..write(obj.createdAt)
+      ..writeByte(14)
       ..write(obj.updatedAt);
   }
 

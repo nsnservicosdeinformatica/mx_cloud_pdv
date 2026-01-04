@@ -19,7 +19,8 @@ import 'detalhes_mesa_screen.dart';
 import 'detalhes_produtos_mesa_screen.dart';
 import '../../models/mesas/entidade_produtos.dart';
 import '../../data/models/mesa_alerta.dart';
-import 'widgets/mesa_insights_panel.dart';
+// TODO: Ocultado temporariamente - descomentar quando necessário
+// import 'widgets/mesa_insights_panel.dart';
 import 'widgets/mesa_alerta_badge.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../widgets/h4nd_loading.dart';
@@ -360,51 +361,52 @@ class _MesasScreenState extends State<MesasScreen> {
           const SizedBox(width: 8),
           
           // Botão de filtro de alertas - compacto (apenas desktop)
-          if (!adaptive.isMobile) ...[
-            Stack(
-              children: [
-                _buildToolButtonCompact(
-                  adaptive,
-                  icon: Icons.warning_rounded,
-                  onTap: _toggleFiltroAlertas,
-                  isPrimary: _filtroApenasAlertas,
-                  tooltip: _filtroApenasAlertas
-                      ? 'Mostrar todas as mesas'
-                      : 'Mostrar apenas mesas com alertas',
-                ),
-                if (_alertas.isNotEmpty)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 1.5,
-                        ),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      child: Text(
-                        '${_alertas.length}',
-                        style: GoogleFonts.inter(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 8),
-          ],
+          // TODO: Ocultado temporariamente - descomentar quando necessário
+          // if (!adaptive.isMobile) ...[
+          //   Stack(
+          //     children: [
+          //       _buildToolButtonCompact(
+          //         adaptive,
+          //         icon: Icons.warning_rounded,
+          //         onTap: _toggleFiltroAlertas,
+          //         isPrimary: _filtroApenasAlertas,
+          //         tooltip: _filtroApenasAlertas
+          //             ? 'Mostrar todas as mesas'
+          //             : 'Mostrar apenas mesas com alertas',
+          //       ),
+          //       if (_alertas.isNotEmpty)
+          //         Positioned(
+          //           right: 0,
+          //           top: 0,
+          //           child: Container(
+          //             padding: const EdgeInsets.all(4),
+          //             decoration: BoxDecoration(
+          //               color: Colors.red,
+          //               shape: BoxShape.circle,
+          //               border: Border.all(
+          //                 color: Colors.white,
+          //                 width: 1.5,
+          //               ),
+          //             ),
+          //             constraints: const BoxConstraints(
+          //               minWidth: 16,
+          //               minHeight: 16,
+          //             ),
+          //             child: Text(
+          //               '${_alertas.length}',
+          //               style: GoogleFonts.inter(
+          //                 fontSize: 9,
+          //                 fontWeight: FontWeight.w700,
+          //                 color: Colors.white,
+          //               ),
+          //               textAlign: TextAlign.center,
+          //             ),
+          //           ),
+          //         ),
+          //     ],
+          //   ),
+          //   const SizedBox(width: 8),
+          // ],
           
           // Botão de atualizar - compacto
           _buildToolButtonCompact(
@@ -1195,10 +1197,11 @@ class _MesasScreenState extends State<MesasScreen> {
                   // Barra de ferramentas (apenas desktop - dentro da coluna de mesas)
                   _buildBarraFerramentas(adaptive),
                   // Painel de insights (apenas desktop)
-                  MesaInsightsPanel(
-                    alertas: _alertas,
-                    isDesktop: true,
-                  ),
+                  // TODO: Ocultado temporariamente - descomentar quando necessário
+                  // MesaInsightsPanel(
+                  //   alertas: _alertas,
+                  //   isDesktop: true,
+                  // ),
                   // GridView de mesas
                   Expanded(
                     child: _provider.errorMessage != null

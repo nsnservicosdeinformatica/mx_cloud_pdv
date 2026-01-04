@@ -89,7 +89,7 @@ class BalcaoPaymentHelper {
           }
           
           // Mostra loading durante a busca da venda atualizada
-          LoadingHelper.show(context);
+          LoadingHelper.show(context, message: 'Buscando venda atualizada...');
           
           try {
             // Atualiza a venda para garantir dados mais recentes e reabre o pagamento
@@ -111,7 +111,7 @@ class BalcaoPaymentHelper {
         // Tela fechou com result == true (pagamento foi processado)
         // Mas pode ser pagamento parcial - precisa verificar se ainda há saldo
         // Mostra loading durante a busca da venda atualizada
-        LoadingHelper.show(context);
+        LoadingHelper.show(context, message: 'Buscando venda atualizada...');
         
         try {
           final vendaBalcaoProvider = Provider.of<VendaBalcaoProvider>(context, listen: false);

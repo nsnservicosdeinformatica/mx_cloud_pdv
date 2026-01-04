@@ -170,8 +170,21 @@ class MesasProvider extends ChangeNotifier {
       eventBus.on(TipoEvento.pedidoSincronizado).listen((evento) {
         if (evento.mesaId != null) {
           debugPrint('📢 [MesasProvider] Evento: Pedido ${evento.pedidoId} sincronizado na mesa ${evento.mesaId}');
+          
+          // Recalcula status (pode não encontrar pedidos se foi enviado direto)
           _recalcularStatusMesa(evento.mesaId!);
+          
+          // Se não encontrou pedidos locais, o pedido foi enviado direto via API
+          // Busca dados atualizados do servidor imediatamente para aquela mesa específica
+          final statusCalculado = _statusCalculadoPorMesa[evento.mesaId!];
+          if (statusCalculado == null || statusCalculado.totalPedidosLocais == 0) {
+            debugPrint('🔄 [MesasProvider] Pedido enviado direto detectado, buscando dados do servidor para mesa ${evento.mesaId}');
+            // Busca apenas aquela mesa específica do servidor e atualiza na lista
+            _atualizarMesasDoServidor([evento.mesaId!]);
+          } else {
+            // Tem pedidos locais, agenda atualização normal (com debounce)
           _agendarAtualizacaoServidor(evento.mesaId!);
+          }
         }
       }),
     );
@@ -496,13 +509,16 @@ class MesasProvider extends ChangeNotifier {
         _mesas[index] = entry.value;
         houveAtualizacao = true;
         
-        // Recalcula status após atualizar do servidor
+        // Recalcula status completo após atualizar dados do servidor
+        // Isso garante que o status seja calculado corretamente com dados atualizados
         _recalcularStatusMesa(entry.key);
       }
     }
     
     if (houveAtualizacao) {
-      filterMesas(''); // Reaplica filtro
+      // Reaplica filtro e notifica listeners para atualizar UI
+      filterMesas(''); 
+      debugPrint('✅ [MesasProvider] Mesa(s) atualizada(s) do servidor e UI notificada');
     }
   }
 

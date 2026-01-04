@@ -170,8 +170,21 @@ class ComandasProvider extends ChangeNotifier {
       eventBus.on(TipoEvento.pedidoSincronizado).listen((evento) {
         if (evento.comandaId != null) {
           debugPrint('📢 [ComandasProvider] Evento: Pedido ${evento.pedidoId} sincronizado na comanda ${evento.comandaId}');
+          
+          // Recalcula status (pode não encontrar pedidos se foi enviado direto)
           _recalcularStatusComanda(evento.comandaId!);
+          
+          // Se não encontrou pedidos locais, o pedido foi enviado direto via API
+          // Busca dados atualizados do servidor imediatamente para aquela comanda específica
+          final statusCalculado = _statusCalculadoPorComanda[evento.comandaId!];
+          if (statusCalculado == null || statusCalculado.totalPedidosLocais == 0) {
+            debugPrint('🔄 [ComandasProvider] Pedido enviado direto detectado, buscando dados do servidor para comanda ${evento.comandaId}');
+            // Busca apenas aquela comanda específica do servidor e atualiza na lista
+            _atualizarComandasDoServidor([evento.comandaId!]);
+          } else {
+            // Tem pedidos locais, agenda atualização normal (com debounce)
           _agendarAtualizacaoServidor(evento.comandaId!);
+          }
         }
       }),
     );
@@ -334,9 +347,45 @@ class ComandasProvider extends ChangeNotifier {
 
   /// Atualiza comandas específicas do servidor
   Future<void> _atualizarComandasDoServidor(List<String> comandaIds) async {
-    // Por enquanto, apenas recarrega todas as comandas
-    // Pode ser otimizado no futuro para buscar apenas as específicas
-    await loadComandas(refresh: true);
+    final Map<String, ComandaListItemDto> comandasAtualizadas = {};
+    
+    // Busca todas em paralelo
+    final futures = comandaIds.map((comandaId) async {
+      try {
+        debugPrint('📡 Buscando dados atualizados da comanda $comandaId do servidor...');
+        final response = await comandaService.getComandaById(comandaId);
+        if (response.success && response.data != null) {
+          comandasAtualizadas[comandaId] = response.data!;
+          debugPrint('✅ Comanda $comandaId atualizada: ${response.data!.numero} - Status: ${response.data!.status}');
+        } else {
+          debugPrint('⚠️ Erro ao buscar comanda $comandaId: ${response.message}');
+        }
+      } catch (e) {
+        debugPrint('❌ Erro ao atualizar comanda $comandaId: $e');
+      }
+    });
+    
+    await Future.wait(futures);
+    
+    // Atualiza na lista
+    bool houveAtualizacao = false;
+    for (final entry in comandasAtualizadas.entries) {
+      final index = _comandas.indexWhere((c) => c.id == entry.key);
+      if (index != -1) {
+        _comandas[index] = entry.value;
+        houveAtualizacao = true;
+        
+        // Recalcula status completo após atualizar dados do servidor
+        // Isso garante que o status seja calculado corretamente com dados atualizados
+        _recalcularStatusComanda(entry.key);
+      }
+    }
+    
+    if (houveAtualizacao) {
+      // Reaplica filtro e notifica listeners para atualizar UI
+      filterComandas('');
+      debugPrint('✅ [ComandasProvider] Comanda(s) atualizada(s) do servidor e UI notificada');
+    }
   }
 
   /// Seleciona automaticamente a comanda que tem pedidos pendentes (mais recente)

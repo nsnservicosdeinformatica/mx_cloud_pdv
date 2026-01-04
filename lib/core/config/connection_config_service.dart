@@ -114,20 +114,16 @@ class ConnectionConfigService {
   static String getApiUrl() {
     final serverUrl = getServerUrl();
     if (serverUrl == null || serverUrl.isEmpty) {
-      debugPrint('⚠️ [ConnectionConfigService] getApiUrl: serverUrl está vazio, retornando string vazia');
       return '';
     }
     
     // Se já termina com /api, retorna como está
     if (serverUrl.endsWith('/api')) {
-      debugPrint('✅ [ConnectionConfigService] getApiUrl: $serverUrl (já tem /api)');
       return serverUrl;
     }
     
     // Adiciona /api
-    final apiUrl = '$serverUrl/api';
-    debugPrint('✅ [ConnectionConfigService] getApiUrl: $apiUrl (adicionado /api)');
-    return apiUrl;
+    return '$serverUrl/api';
   }
   
   /// Limpa configuração

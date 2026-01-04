@@ -55,15 +55,6 @@ class AuthService {
   /// Instância do ApiClient para uso em outros serviços
   ApiClient get apiClient => _apiClient;
 
-  /// Atualiza a URL base do ApiClient quando a configuração muda
-  /// Isso é necessário porque o Dio mantém o baseUrl definido no construtor
-  void updateApiUrl() {
-    final newApiUrl = _config.apiUrl;
-    debugPrint('🔄 [AuthService] Atualizando API URL: ${_dio.options.baseUrl} -> $newApiUrl');
-    _dio.options.baseUrl = newApiUrl;
-    _apiClient.updateBaseUrl(newApiUrl);
-  }
-
   /// Realiza o login
   Future<LoginResponse> login({
     required String email,

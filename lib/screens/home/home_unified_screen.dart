@@ -16,7 +16,6 @@ import '../../data/repositories/pedido_local_repository.dart';
 import '../../data/models/local/pedido_local.dart';
 import '../../data/models/local/sync_status_pedido.dart';
 import '../sync/sync_dialog.dart';
-import '../sync/api_local_sync_dialog.dart';
 import '../pedidos/pedidos_sync_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart';
 import '../mesas_comandas/mesas_comandas_screen.dart' show TipoVisualizacao;
@@ -219,15 +218,27 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
       if (_setor == 2) {
         // Restaurante: mostra dialog para selecionar mesa/comanda
         // Venda avulsa permite sem mesa/comanda (independente da configuração)
+        final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+        final configRestaurante = servicesProvider.configuracaoRestaurante;
+        
+        // Determina se deve mostrar apenas comanda baseado na configuração
+        final apenasComanda = configRestaurante != null && configRestaurante.isControlePorComanda;
+        final apenasMesa = configRestaurante != null && configRestaurante.isControlePorMesa;
+        
         final resultado = await SelecionarMesaComandaDialog.show(
           context,
           permiteVendaAvulsa: true, // Sempre permite venda avulsa
+          apenasComanda: apenasComanda,
+          apenasMesa: apenasMesa,
         );
         if (resultado != null && mounted) {
+          // Se controle é apenas por comanda, força mesaId como null
+          final mesaIdFinal = apenasComanda ? null : resultado.mesa?.id;
+          
           // Usa o método show() que detecta automaticamente se deve usar modal ou tela cheia
           await NovoPedidoRestauranteScreen.show(
             context,
-            mesaId: resultado.mesa?.id,
+            mesaId: mesaIdFinal,
             comandaId: resultado.comanda?.id,
           );
         }
@@ -275,31 +286,14 @@ class _HomeUnifiedScreenState extends State<HomeUnifiedScreen> {
     }
   }
 
+  // TODO: Implementar sincronização com API local quando necessário
   Future<void> _mostrarDialogSincronizacaoApiLocal() async {
-    // Mostra dialog de confirmação primeiro
-    final confirmado = await AppDialog.showConfirm(
-      context: context,
-      title: 'Confirmar Sincronização do Servidor',
-      message: 'A sincronização irá buscar dados atualizados do servidor cloud para a API local. '
-          'Esta ação pode demorar alguns minutos.\n\n'
-          'Deseja continuar?',
-      confirmText: 'Sincronizar',
-      cancelText: 'Cancelar',
-      icon: Icons.cloud_sync,
-      iconColor: const Color(0xFF10B981),
-      confirmColor: const Color(0xFF10B981),
-    );
-
-    // Se o usuário confirmou, inicia a sincronização
-    if (confirmado == true && mounted) {
-      final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
-      final apiLocalSyncService = servicesProvider.apiLocalSyncService;
-      
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => ApiLocalSyncDialog(
-          apiLocalSyncService: apiLocalSyncService,
+    // Funcionalidade não implementada ainda
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Funcionalidade de sincronização com API local ainda não implementada'),
+          duration: Duration(seconds: 3),
         ),
       );
     }

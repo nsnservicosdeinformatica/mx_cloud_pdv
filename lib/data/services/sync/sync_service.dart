@@ -796,17 +796,23 @@ class SyncService {
           debugPrint('📋 Configuração encontrada: TipoControleVenda=${config.tipoControleVenda}');
           debugPrint('  - ControlePorMesa: ${config.controlePorMesa}');
           debugPrint('  - ControlePorComanda: ${config.controlePorComanda}');
+          debugPrint('  - ControlePorMesaOuComanda: ${config.controlePorMesaOuComanda}');
           
-          if (config.controlePorComanda) {
-            // Controle por Comanda: comanda e mesa são opcionais
-            debugPrint('✅ Configuração: Controle por Comanda');
-            // Tudo é opcional - não há validação obrigatória
-            debugPrint('  - Enviando: ComandaId=$comandaIdFinal (opcional), MesaId=$mesaIdFinal (opcional)');
-          } else if (config.controlePorMesa) {
-            // Controle por Mesa: enviar apenas mesa, comanda sempre null
+          if (config.isControlePorMesa) {
+            // Controle por Mesa: apenas mesa, comanda sempre null
             debugPrint('✅ Configuração: Controle por Mesa');
             comandaIdFinal = null; // Força null quando controle é por mesa
             debugPrint('  - Enviando: MesaId=$mesaIdFinal, ComandaId=null (forçado)');
+          } else if (config.isControlePorComanda) {
+            // Controle por Comanda: apenas comanda, mesa é opcional (referência)
+            debugPrint('✅ Configuração: Controle por Comanda');
+            // Mesa pode ser informada como referência, mas não é obrigatória
+            debugPrint('  - Enviando: ComandaId=$comandaIdFinal, MesaId=$mesaIdFinal (opcional)');
+          } else if (config.isControlePorMesaOuComanda) {
+            // Controle por Mesa OU Comanda: permite ambos, nenhum é obrigatório
+            debugPrint('✅ Configuração: Controle por Mesa OU Comanda');
+            // Tudo é opcional - pode ter mesa, comanda, ambos ou nenhum
+            debugPrint('  - Enviando: MesaId=$mesaIdFinal (opcional), ComandaId=$comandaIdFinal (opcional)');
           } else {
             debugPrint('⚠️ Configuração não definida ou inválida, enviando valores originais');
           }

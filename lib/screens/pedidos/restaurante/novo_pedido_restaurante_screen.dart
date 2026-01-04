@@ -11,6 +11,7 @@ import '../../../data/models/modules/restaurante/mesa_list_item.dart';
 import '../../../data/models/modules/restaurante/comanda_list_item.dart';
 import '../../../core/widgets/loading_helper.dart';
 import '../../../core/widgets/error_helper.dart';
+import '../../../core/widgets/app_dialog.dart';
 import '../../../data/models/core/tipo_venda.dart';
 import '../../../core/events/app_event_bus.dart';
 import 'package:flutter/foundation.dart';
@@ -90,15 +91,25 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
   /// Busca dados de mesa e/ou comanda se houver IDs
   Future<void> _buscarMesaOuComanda() async {
     final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+    final configRestaurante = servicesProvider.configuracaoRestaurante;
     
-    // Busca mesa se houver ID
-    if (widget.mesaId != null && mounted) {
+    // Se controle é apenas por comanda, não busca mesa
+    final isControleApenasComanda = configRestaurante != null && 
+                                     configRestaurante.isControlePorComanda;
+    
+    // Busca mesa se houver ID E não for controle apenas por comanda
+    if (!isControleApenasComanda && widget.mesaId != null && mounted) {
       final mesaResponse = await servicesProvider.mesaService.getMesaById(widget.mesaId!);
       if (mesaResponse.success && mesaResponse.data != null && mounted) {
         setState(() {
           _mesa = mesaResponse.data;
         });
       }
+    } else if (isControleApenasComanda) {
+      // Força mesa como null quando controle é apenas por comanda
+      setState(() {
+        _mesa = null;
+      });
     }
 
     // Busca comanda se houver ID
@@ -128,12 +139,22 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     
     final pedidoProvider = Provider.of<PedidoProvider>(context, listen: false);
     
+    final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+    final configRestaurante = servicesProvider.configuracaoRestaurante;
+    final isControleApenasComanda = configRestaurante != null && 
+                                     configRestaurante.isControlePorComanda;
+    
+    // Se controle é apenas por comanda, força mesaId como null
+    final mesaIdFinal = isControleApenasComanda ? null : widget.mesaId;
+    
     debugPrint('📋 [NovoPedidoRestauranteScreen] Chamando iniciarNovoPedido:');
-    debugPrint('  - MesaId: ${widget.mesaId}');
+    debugPrint('  - Controle apenas por comanda: $isControleApenasComanda');
+    debugPrint('  - MesaId original: ${widget.mesaId}');
+    debugPrint('  - MesaId final: $mesaIdFinal (${isControleApenasComanda ? "forçado null" : "mantido"})');
     debugPrint('  - ComandaId: ${widget.comandaId}');
 
         final sucesso = await pedidoProvider.iniciarNovoPedido(
-          mesaId: widget.mesaId,
+          mesaId: mesaIdFinal,
           comandaId: widget.comandaId,
         );
 
@@ -148,7 +169,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       if (!mounted) return;
       
       // Mostra loading enquanto inicializa
-      LoadingHelper.show(context);
+      LoadingHelper.show(context, message: 'Inicializando pedido...');
       
       try {
         // Verifica se há venda pendente (apenas para venda balcão)
@@ -190,7 +211,17 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
         LoadingHelper.hide(context);
 
         // Se usuário cancelou a abertura de sessão, volta para tela anterior
-        if (!sucesso && widget.mesaId != null && mounted) {
+        // Verifica se tem mesaId OU comandaId (dependendo da configuração)
+        final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+        final configRestaurante = servicesProvider.configuracaoRestaurante;
+        final isControleApenasComanda = configRestaurante != null && 
+                                         configRestaurante.isControlePorComanda;
+        
+        final temIdRequerido = isControleApenasComanda 
+            ? widget.comandaId != null 
+            : widget.mesaId != null;
+        
+        if (!sucesso && temIdRequerido && mounted) {
           Navigator.of(context).pop();
         }
       } catch (e) {
@@ -458,17 +489,32 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     }
 
     // Tela cheia: usa Scaffold (mobile)
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: Column(
-        children: [
-          // Barra de ferramentas com título usando ElevatedToolbarContainer
-          _buildBarraFerramentasComTitulo(adaptive),
-          // Conteúdo principal
-          Expanded(
-            child: buildContent(),
-          ),
-        ],
+    // Intercepta o botão voltar do sistema quando há itens no pedido
+    final pedidoProvider = Provider.of<PedidoProvider>(context, listen: false);
+    final temItensNoPedido = !pedidoProvider.isEmpty;
+    
+    return PopScope(
+      canPop: !temItensNoPedido, // Permite fechar se não tem itens, impede se tem
+      onPopInvokedWithResult: (bool didPop, dynamic result) async {
+        if (didPop) return; // Já foi fechado
+        
+        // Intercepta o botão voltar do sistema (Android/iOS) quando há itens
+        if (temItensNoPedido) {
+          await _handleVoltar();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        body: Column(
+          children: [
+            // Barra de ferramentas com título usando ElevatedToolbarContainer
+            _buildBarraFerramentasComTitulo(adaptive),
+            // Conteúdo principal
+            Expanded(
+              child: buildContent(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -477,6 +523,9 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
   Widget _buildBarraFerramentasComTitulo(AdaptiveLayoutProvider? adaptive) {
     if (adaptive == null) return const SizedBox.shrink();
     
+    // Verifica se foi chamado de mesa/comanda (tem mesaId ou comandaId)
+    final foiChamadoDeMesaOuComanda = widget.mesaId != null || widget.comandaId != null;
+    
     return ElevatedToolbarContainer(
       padding: EdgeInsets.symmetric(
         horizontal: adaptive.isMobile ? 12 : 16,
@@ -484,8 +533,8 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
       ),
       child: Row(
         children: [
-          // Botão voltar (apenas mobile) - padrão igual detalhes da mesa
-          if (adaptive.isMobile) ...[
+          // Botão voltar: sempre mostra quando foi chamado de mesa/comanda, ou apenas mobile
+          if (foiChamadoDeMesaOuComanda || adaptive.isMobile) ...[
             _buildBackButton(adaptive),
             const SizedBox(width: 8),
           ],
@@ -722,7 +771,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => Navigator.of(context).maybePop(),
+        onTap: _handleVoltar,
         borderRadius: BorderRadius.circular(10),
         child: Container(
           padding: const EdgeInsets.all(10),
@@ -756,6 +805,35 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
         ),
       ),
     );
+  }
+  
+  /// Trata o clique no botão voltar
+  /// Se houver itens no pedido, mostra dialog de confirmação
+  Future<void> _handleVoltar() async {
+    final pedidoProvider = Provider.of<PedidoProvider>(context, listen: false);
+    
+    // Se o pedido tem itens, mostra dialog de confirmação
+    if (!pedidoProvider.isEmpty) {
+      final confirmar = await AppDialog.showConfirm(
+        context: context,
+        title: 'Descartar Pedido?',
+        message: 'O pedido será descartado. Tem certeza que deseja continuar?',
+        confirmText: 'Descartar',
+        cancelText: 'Cancelar',
+        icon: Icons.warning_rounded,
+        iconColor: AppTheme.warningColor,
+        confirmColor: AppTheme.errorColor,
+      );
+      
+      if (confirmar != true) {
+        return; // Usuário cancelou, não fecha a tela
+      }
+    }
+    
+    // Se não tem itens ou usuário confirmou, fecha a tela
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(false);
+    }
   }
 
   /// Botão de ferramenta compacto (padrão igual área de mesas)
@@ -847,7 +925,7 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
     }
 
     // Mostra loading
-    LoadingHelper.show(context);
+    LoadingHelper.show(context, message: 'Finalizando pedido...');
 
     try {
       // ✅ Usa método comum do PedidoProvider para finalizar
@@ -918,13 +996,30 @@ class _NovoPedidoRestauranteScreenState extends State<NovoPedidoRestauranteScree
         );
       }
 
-      // Dispara evento para atualizar mesas/comandas (só se tiver pedidoId)
+      // Dispara eventos para atualizar mesas/comandas (só se tiver pedidoId)
       if (result.pedidoId != null) {
+        final mesaId = widget.mesaId ?? '';
+        final comandaId = widget.comandaId ?? '';
+        
+        if (result.foiEnviadoDireto) {
+          // Se foi enviado direto via API, dispara evento de sincronizado
+          // Isso faz o provider atualizar do servidor imediatamente
+          debugPrint('📢 [NovoPedidoRestauranteScreen] Disparando evento pedidoSincronizado (enviado direto)');
+          AppEventBus.instance.dispararPedidoSincronizado(
+            pedidoId: result.pedidoId!,
+            mesaId: mesaId,
+            comandaId: comandaId.isNotEmpty ? comandaId : null,
+          );
+        } else {
+          // Se foi salvo no Hive, dispara evento de criado
+          // O AutoSyncManager vai sincronizar e depois disparar sincronizado
+          debugPrint('📢 [NovoPedidoRestauranteScreen] Disparando evento pedidoCriado (salvo no Hive)');
         AppEventBus.instance.dispararPedidoCriado(
           pedidoId: result.pedidoId!,
-          mesaId: widget.mesaId ?? '',
-          comandaId: widget.comandaId ?? '',
+            mesaId: mesaId,
+            comandaId: comandaId.isNotEmpty ? comandaId : null,
         );
+        }
       }
 
       // Volta para a tela anterior após um breve delay

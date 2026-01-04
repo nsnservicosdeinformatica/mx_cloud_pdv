@@ -233,31 +233,59 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
                         });
                         
                         try {
+                          // Verifica configuração do restaurante
+                          final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
+                          final configRestaurante = servicesProvider.configuracaoRestaurante;
+                          final isControleApenasComanda = configRestaurante != null && 
+                                                           configRestaurante.isControlePorComanda;
+                          final isControleApenasMesa = configRestaurante != null && 
+                                                        configRestaurante.isControlePorMesa;
+                          
                           // Lógica baseada no tipo de entidade
                           if (widget.entidade.tipo == TipoEntidade.mesa) {
-                            // Tela de Mesa: sempre abre diálogo com mesa pré-selecionada
-                            // Se estiver em uma aba de comanda específica, pré-seleciona também a comanda
+                            // Tela de Mesa: busca venda atual para pré-selecionar mesa e comanda
+                            String? mesaIdPreSelecionada;
                             String? comandaIdPreSelecionada;
                             
-                            // Se a aba selecionada é uma comanda (não é "Mesa"), pré-seleciona ela
-                            if (_provider.abaSelecionada != null && 
-                                _provider.abaSelecionada != MesaDetalhesProvider.semComandaId) {
-                              comandaIdPreSelecionada = _provider.abaSelecionada;
+                            // Busca venda atual se houver
+                            final vendaAtual = _provider.vendaAtual;
+                            
+                            // Se não é controle apenas por comanda, sempre pré-seleciona a mesa da entidade atual
+                            // (mesmo que a venda tenha outra mesa, estamos vendo os detalhes desta mesa)
+                            if (!isControleApenasComanda) {
+                              mesaIdPreSelecionada = widget.entidade.id;
+                            }
+                            
+                            // Se há venda atual, usa a comanda da venda se houver
+                            if (vendaAtual != null && vendaAtual.comandaId != null) {
+                              comandaIdPreSelecionada = vendaAtual.comandaId;
+                            } else {
+                              // Se não há venda atual ou venda não tem comanda, verifica se a aba selecionada é uma comanda
+                              if (_provider.abaSelecionada != null && 
+                                  _provider.abaSelecionada != MesaDetalhesProvider.semComandaId) {
+                                comandaIdPreSelecionada = _provider.abaSelecionada;
+                              }
                             }
                             
                             final resultado = await SelecionarMesaComandaDialog.show(
                               context,
-                              mesaIdPreSelecionada: widget.entidade.id,
+                              mesaIdPreSelecionada: mesaIdPreSelecionada,
                               comandaIdPreSelecionada: comandaIdPreSelecionada,
                               permiteVendaAvulsa: true, // Permite continuar sem comanda
+                              apenasComanda: isControleApenasComanda,
+                              apenasMesa: isControleApenasMesa,
                             );
                             
                             // Se cancelou, não faz nada. Se confirmou (com ou sem comanda), continua
                             if (resultado != null && mounted) {
-                              final mesaIdFinal = resultado.mesa?.id ?? widget.entidade.id;
+                              // Se controle é apenas por comanda, força mesaId como null
+                              final mesaIdFinal = isControleApenasComanda 
+                                  ? null 
+                                  : (resultado.mesa?.id ?? widget.entidade.id);
                               final comandaIdFinal = resultado.comanda?.id;
                               
                               debugPrint('📋 [DetalhesProdutosMesaScreen] Abrindo NovoPedidoRestauranteScreen:');
+                              debugPrint('  - Controle apenas por comanda: $isControleApenasComanda');
                               debugPrint('  - MesaId: $mesaIdFinal (resultado.mesa?.id: ${resultado.mesa?.id}, widget.entidade.id: ${widget.entidade.id})');
                               debugPrint('  - ComandaId: $comandaIdFinal');
                               
@@ -273,19 +301,44 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
                               }
                             }
                           } else {
-                            // Tela de Comanda: sempre mostra modal (tudo opcional)
+                            // Tela de Comanda: busca venda atual para pré-selecionar mesa e comanda
+                            String? mesaIdPreSelecionada;
+                            String? comandaIdPreSelecionada;
+                            
+                            // Busca venda atual se houver
+                            final vendaAtual = _provider.vendaAtual;
+                            if (vendaAtual != null) {
+                              // Se a venda tem mesa e não é controle apenas por comanda, pré-seleciona a mesa
+                              if (vendaAtual.mesaId != null && !isControleApenasComanda) {
+                                mesaIdPreSelecionada = vendaAtual.mesaId;
+                              }
+                              // Se a venda tem comanda, pré-seleciona a comanda
+                              if (vendaAtual.comandaId != null) {
+                                comandaIdPreSelecionada = vendaAtual.comandaId;
+                              }
+                            } else {
+                              // Se não há venda atual, usa a comanda da entidade
+                              comandaIdPreSelecionada = widget.entidade.id;
+                            }
+                            
                             final resultado = await SelecionarMesaComandaDialog.show(
                               context,
-                              comandaIdPreSelecionada: widget.entidade.id,
+                              mesaIdPreSelecionada: mesaIdPreSelecionada,
+                              comandaIdPreSelecionada: comandaIdPreSelecionada,
                               permiteVendaAvulsa: true, // Permite continuar sem seleção
+                              apenasComanda: isControleApenasComanda,
+                              apenasMesa: isControleApenasMesa,
                             );
                             
                             // Se cancelou, não faz nada. Se confirmou (com ou sem seleção), continua
                             if (resultado != null && mounted) {
                               final comandaIdFinal = resultado.comanda?.id ?? widget.entidade.id;
+                              // Se controle é apenas por comanda, força mesaId como null
+                              final mesaIdFinal = isControleApenasComanda ? null : resultado.mesa?.id;
+                              
                               await NovoPedidoRestauranteScreen.show(
                                 context,
-                                mesaId: resultado.mesa?.id,
+                                mesaId: mesaIdFinal,
                                 comandaId: comandaIdFinal.isNotEmpty ? comandaIdFinal : null,
                               );
                               
@@ -1032,7 +1085,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
     // Para comandas, sempre segue o fluxo normal (uma comanda = uma venda)
     if (_provider.abaSelecionada == null && widget.entidade.tipo == TipoEntidade.mesa) {
       // Buscar resumo de vendas abertas da mesa
-      LoadingHelper.show(context);
+      LoadingHelper.show(context, message: 'Buscando informações da mesa...');
       
       try {
         final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
@@ -1059,7 +1112,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
           }
           
           // Buscar venda completa pelo ID do resumo
-          LoadingHelper.show(context);
+          LoadingHelper.show(context, message: 'Buscando venda...');
           try {
             final vendaCompletaResponse = await servicesProvider.vendaService.getVendaById(vendaId);
             LoadingHelper.hide(context);
@@ -1122,7 +1175,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
         }
         
         // Buscar primeira venda completa para usar como base na tela de pagamento
-        LoadingHelper.show(context);
+        LoadingHelper.show(context, message: 'Preparando pagamento...');
         try {
           final primeiraVendaResponse = await servicesProvider.vendaService.getVendaById(todasVendaIds.first);
           LoadingHelper.hide(context);
@@ -2031,7 +2084,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
       // Mostra loading
       if (!mounted) return;
-      LoadingHelper.show(context);
+      LoadingHelper.show(context, message: 'Atualizando item...');
 
       // Chama serviço para atualizar
       final pedidoService = _servicesProvider.pedidoService;
@@ -2078,7 +2131,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
       // Mostra loading
       if (!mounted) return;
-      LoadingHelper.show(context);
+      LoadingHelper.show(context, message: 'Cancelando item...');
 
       // Chama serviço para cancelar item
       final pedidoService = _servicesProvider.pedidoService;
@@ -2122,7 +2175,7 @@ class _DetalhesProdutosMesaScreenState extends State<DetalhesProdutosMesaScreen>
 
       // Mostra loading
       if (!mounted) return;
-      LoadingHelper.show(context);
+      LoadingHelper.show(context, message: 'Cancelando pedido...');
 
       // Cancela pedido
       final pedidoService = _servicesProvider.pedidoService;

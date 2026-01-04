@@ -39,7 +39,12 @@ class ConfiguracaoRestauranteService {
       }
       
       final config = ConfiguracaoRestauranteDto.fromJson(configData);
-      debugPrint('✅ Configuração encontrada: TipoControleVenda=${config.tipoControleVenda} (${config.controlePorMesa ? "PorMesa" : "PorComanda"})');
+      final tipoControle = config.isControlePorMesa 
+          ? "PorMesa" 
+          : (config.isControlePorComanda 
+              ? "PorComanda" 
+              : "PorMesaOuComanda");
+      debugPrint('✅ Configuração encontrada: TipoControleVenda=${config.tipoControleVenda} ($tipoControle)');
       
       return ApiResponse<ConfiguracaoRestauranteDto?>.success(
         data: config,

@@ -4,6 +4,8 @@ import '../../../presentation/providers/auth_provider.dart';
 import '../../../presentation/providers/services_provider.dart';
 import '../../../screens/home/home_unified_screen.dart';
 import '../../../screens/mesas_comandas/mesas_comandas_screen.dart';
+import '../../../screens/mesas/mesas_screen.dart';
+import '../../../screens/comandas/comandas_screen.dart';
 import '../../../screens/pedidos/pedidos_screen.dart';
 import '../../../screens/balcao/balcao_screen.dart';
 import '../../../screens/patio/patio_screen.dart';
@@ -110,7 +112,7 @@ class _HomeNavigationState extends State<HomeNavigation> {
     }
   }
 
-  List<NavigationItem> _getNavigationItems() {
+  List<NavigationItem> _getNavigationItems(ServicesProvider? servicesProvider) {
     // Home unificada para todos os setores
     final homeItem = NavigationItem(
       icon: Icons.home,
@@ -134,14 +136,59 @@ class _HomeNavigationState extends State<HomeNavigation> {
 
     switch (_setor) {
       case 2: // Restaurante
-        final items = [
-          homeItem,
+        final items = [homeItem];
+        
+        // Verificar configuração do restaurante para determinar o item de navegação
+        final config = servicesProvider?.configuracaoRestaurante;
+        
+        if (config != null) {
+          if (config.isControlePorMesa) {
+            // Apenas Mesa: mostrar apenas "Mesas"
+            items.add(
+              NavigationItem(
+                icon: Icons.table_restaurant,
+                label: 'Mesas',
+                screen: const MesasScreen(hideAppBar: true),
+              ),
+            );
+          } else if (config.isControlePorComanda) {
+            // Apenas Comanda: mostrar apenas "Comandas"
+            items.add(
+              NavigationItem(
+                icon: Icons.receipt_long,
+                label: 'Comandas',
+                screen: const ComandasScreen(hideAppBar: true),
+              ),
+            );
+          } else if (config.isControlePorMesaOuComanda) {
+            // Mesa ou Comanda: mostrar "Mesas e Comandas"
+            items.add(
+              NavigationItem(
+                icon: Icons.table_restaurant,
+                label: 'Mesas e Comandas',
+                screen: const MesasComandasScreen(hideAppBar: true),
+              ),
+            );
+          } else {
+            // Fallback: se configuração inválida, mostra "Mesas e Comandas"
+            items.add(
+              NavigationItem(
+                icon: Icons.table_restaurant,
+                label: 'Mesas e Comandas',
+                screen: const MesasComandasScreen(hideAppBar: true),
+              ),
+            );
+          }
+        } else {
+          // Se configuração não carregada ainda, mostra "Mesas e Comandas" como padrão
+          items.add(
           NavigationItem(
             icon: Icons.table_restaurant,
             label: 'Mesas e Comandas',
             screen: const MesasComandasScreen(hideAppBar: true),
           ),
-        ];
+          );
+        }
         
         // Adiciona item "Balcão" para venda balcão
         // Não usa const para garantir que a tela seja reconstruída quando necessário
@@ -181,6 +228,8 @@ class _HomeNavigationState extends State<HomeNavigation> {
     final colorMap = {
       'Home': const Color(0xFF4F46E5), // Indigo mais forte
       'Pedidos': const Color(0xFF059669), // Emerald mais forte
+      'Mesas': const Color(0xFFDC2626), // Vermelho mais forte
+      'Comandas': const Color(0xFFDC2626), // Vermelho mais forte
       'Mesas e Comandas': const Color(0xFFDC2626), // Vermelho mais forte
       'Balcão': const Color(0xFFD97706), // Amber mais forte
       'Pátio': const Color(0xFF0284C7), // Azul mais forte
@@ -314,7 +363,7 @@ class _HomeNavigationState extends State<HomeNavigation> {
     // Usa Consumer para reagir a mudanças na configuração do restaurante
     return Consumer<ServicesProvider>(
       builder: (context, servicesProvider, _) {
-        final navigationItems = _getNavigationItems();
+        final navigationItems = _getNavigationItems(servicesProvider);
 
         return Scaffold(
           body: IndexedStack(

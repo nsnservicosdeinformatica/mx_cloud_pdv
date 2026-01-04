@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:async';
 import '../../core/theme/app_theme.dart';
 import '../../core/payment/payment_service.dart';
 import '../../core/payment/payment_method_option.dart';
@@ -123,6 +124,12 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
   // Venda atualizada (para refletir mudanças após pagamentos)
   VendaDto? _vendaAtualizada;
 
+  // Contador automático para concluir venda
+  Timer? _autoConcluirTimer;
+  int _tempoRestante = 5; // 5 segundos
+  bool _autoConcluirCancelado = false; // Flag para indicar se o usuário cancelou
+  bool _saldoJaZerou = false; // Flag para rastrear se o saldo já zerou anteriormente
+
   VendaService get _vendaService {
     final servicesProvider = Provider.of<ServicesProvider>(context, listen: false);
     return servicesProvider.vendaService;
@@ -149,8 +156,53 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
 
   @override
   void dispose() {
+    _cancelarAutoConcluir();
     _valorController.dispose();
     super.dispose();
+  }
+
+  /// Inicia o contador automático para concluir venda
+  void _iniciarAutoConcluir() {
+    // Se já cancelado ou já iniciado, não inicia novamente
+    if (_autoConcluirCancelado || _autoConcluirTimer != null) {
+      return;
+    }
+    
+    // Reseta variáveis
+    _tempoRestante = 5;
+    _saldoJaZerou = true;
+    
+    debugPrint('⏰ [PagamentoRestauranteScreen] Iniciando contador automático de 5 segundos');
+    
+    // Inicia novo timer
+    _autoConcluirTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        _tempoRestante--;
+      });
+      
+      if (_tempoRestante <= 0) {
+        timer.cancel();
+        _autoConcluirTimer = null;
+        
+        // Executa conclusão automaticamente
+        if (!_autoConcluirCancelado && mounted) {
+          debugPrint('⏰ [PagamentoRestauranteScreen] Contador chegou a zero, concluindo venda automaticamente');
+          _concluirVenda();
+        }
+      }
+    });
+  }
+
+  /// Cancela o contador automático
+  void _cancelarAutoConcluir() {
+    _autoConcluirTimer?.cancel();
+    _autoConcluirTimer = null;
+    _autoConcluirCancelado = true;
   }
 
   Future<void> _initializePayment() async {
@@ -403,6 +455,11 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                     ? _saldoRestante.toStringAsFixed(2) 
                     : '0.00';
               });
+              
+              // Se saldo zerou agora (primeira vez), inicia contador automático
+              if (!_saldoJaZerou && _saldoZerou) {
+                _iniciarAutoConcluir();
+              }
             } else {
               // Fallback: busca pela primeira venda ou venda base (não deveria acontecer)
               final vendaIdParaBuscar = _isPagamentoMultiplasVendas 
@@ -417,6 +474,11 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                       ? _saldoRestante.toStringAsFixed(2) 
                       : '0.00';
                 });
+                
+                // Se saldo zerou agora (primeira vez), inicia contador automático
+                if (!_saldoJaZerou && _saldoZerou) {
+                  _iniciarAutoConcluir();
+                }
               }
             }
             
@@ -497,6 +559,9 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
   /// O modal de status será mostrado automaticamente pelo PaymentFlowStatusModal
   /// quando o estado mudar para processamento
   Future<void> _concluirVenda() async {
+    // Cancela contador automático se estiver ativo
+    _cancelarAutoConcluir();
+    
     // 🆕 Obtém PaymentFlowProvider do contexto
     final paymentFlowProvider = Provider.of<PaymentFlowProvider>(context, listen: false);
     
@@ -517,11 +582,17 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
     
     // 🆕 Usa PaymentFlowProvider para concluir venda
     // O modal de status será mostrado automaticamente quando o estado mudar
-      final success = await paymentFlowProvider.concludeSale(
-        concluirVendaCallback: (vendaId) => _vendaService.concluirVenda(vendaId),
-        getVendaCallback: (vendaId) => _vendaService.getVendaById(vendaId), // ✅ Adiciona callback para buscar venda
-        vendaId: widget.venda.id,
-      );
+    // ✅ Usa venda atualizada (agrupada) se disponível, senão usa a venda original
+    final vendaIdParaConcluir = _vendaAtualizada?.id ?? widget.venda.id;
+    debugPrint('🏁 [PagamentoRestauranteScreen] Concluindo venda: $vendaIdParaConcluir');
+    debugPrint('🏁 Venda original: ${widget.venda.id}');
+    debugPrint('🏁 Venda atualizada: ${_vendaAtualizada?.id}');
+    
+    final success = await paymentFlowProvider.concludeSale(
+      concluirVendaCallback: (vendaId) => _vendaService.concluirVenda(vendaId),
+      getVendaCallback: (vendaId) => _vendaService.getVendaById(vendaId), // ✅ Adiciona callback para buscar venda
+      vendaId: vendaIdParaConcluir, // ✅ Usa venda atualizada (agrupada) se disponível
+    );
     
     if (!success) {
       // Se falhou, mostra erro
@@ -563,11 +634,13 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
       }
       
       // Dispara evento de venda finalizada
-      if (widget.venda.mesaId != null) {
+      // ✅ Usa venda atualizada (agrupada) se disponível, senão usa a venda original
+      final vendaFinal = _vendaAtualizada ?? widget.venda;
+      if (vendaFinal.mesaId != null) {
         AppEventBus.instance.dispararVendaFinalizada(
-          vendaId: widget.venda.id,
-          mesaId: widget.venda.mesaId!,
-          comandaId: widget.venda.comandaId,
+          vendaId: vendaFinal.id, // ✅ Usa ID da venda atualizada (agrupada)
+          mesaId: vendaFinal.mesaId!,
+          comandaId: vendaFinal.comandaId,
         );
       }
       
@@ -1442,6 +1515,92 @@ class _PagamentoRestauranteScreenState extends State<PagamentoRestauranteScreen>
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
+                  // Contador automático (se ativo)
+                  if (_autoConcluirTimer != null && !_autoConcluirCancelado && _tempoRestante > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.warningColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.warningColor.withOpacity(0.5),
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.timer_outlined,
+                                color: AppTheme.warningColor,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Concluindo automaticamente em',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.warningColor,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$_tempoRestante',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'segundo${_tempoRestante != 1 ? 's' : ''}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _cancelarAutoConcluir();
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.close, size: 18),
+                              label: const Text('Não Concluir Automaticamente'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.warningColor,
+                                side: BorderSide(
+                                  color: AppTheme.warningColor,
+                                  width: 1.5,
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   // ✅ Usa widget reutilizável (provider já passado como parâmetro)
                   // 🆕 Mostra mensagem diferente baseado no estado
                   _buildActionButton(

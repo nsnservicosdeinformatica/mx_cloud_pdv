@@ -135,15 +135,12 @@ Future<void> initializeApp() async {
     // Cria instâncias dos serviços primeiro (para ter acesso ao ApiClient)
     debugPrint('🔧 [INIT] Criando serviços...');
     final config = Environment.config;
-    debugPrint('🔍 [INIT] Environment.config retornou: ${config.runtimeType}');
-    debugPrint('🔍 [INIT] config.apiUrl: ${config.apiUrl}');
-    debugPrint('🔍 [INIT] ConnectionConfigService.getApiUrl(): ${ConnectionConfigService.getApiUrl()}');
     final secureStorage = SecureStorageService();
     final authService = AuthService(
       config: config,
       secureStorage: secureStorage,
     );
-    debugPrint('✅ [INIT] AuthService criado com apiUrl: ${config.apiUrl}');
+    debugPrint('✅ [INIT] AuthService criado');
     
     // Cria ServicesProvider temporário para obter serviços
     debugPrint('🏭 [INIT] Criando ServicesProvider...');

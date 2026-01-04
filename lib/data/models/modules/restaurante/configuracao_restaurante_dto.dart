@@ -1,3 +1,5 @@
+import 'tipo_controle_venda.dart';
+
 /// DTO para configuração do restaurante
 class ConfiguracaoRestauranteDto {
   final String id;
@@ -15,13 +17,14 @@ class ConfiguracaoRestauranteDto {
   final bool permiteMultiplosPedidosPorMesa;
   
   // Controle de Vendas
-  final int tipoControleVenda; // TipoControleVenda enum (1 = PorMesa, 2 = PorComanda)
+  final int tipoControleVenda; // TipoControleVenda enum (1 = PorMesa, 2 = PorComanda, 3 = PorMesaOuComanda)
   
   // Propriedades calculadas
   final bool mapaDisponivel;
   final bool listaDisponivel;
   final bool controlePorMesa;
   final bool controlePorComanda;
+  final bool controlePorMesaOuComanda;
   
   // Timestamps
   final DateTime createdAt;
@@ -40,6 +43,7 @@ class ConfiguracaoRestauranteDto {
     required this.listaDisponivel,
     required this.controlePorMesa,
     required this.controlePorComanda,
+    required this.controlePorMesaOuComanda,
     required this.createdAt,
     this.updatedAt,
   });
@@ -86,8 +90,9 @@ class ConfiguracaoRestauranteDto {
       tipoControleVenda: tipoControleVenda,
       mapaDisponivel: json['mapaDisponivel'] as bool? ?? false,
       listaDisponivel: json['listaDisponivel'] as bool? ?? false,
-      controlePorMesa: json['controlePorMesa'] as bool? ?? (tipoControleVenda == 1),
-      controlePorComanda: json['controlePorComanda'] as bool? ?? (tipoControleVenda == 2),
+      controlePorMesa: json['controlePorMesa'] as bool? ?? (tipoControleVenda == TipoControleVenda.porMesa.value),
+      controlePorComanda: json['controlePorComanda'] as bool? ?? (tipoControleVenda == TipoControleVenda.porComanda.value),
+      controlePorMesaOuComanda: json['controlePorMesaOuComanda'] as bool? ?? (tipoControleVenda == TipoControleVenda.porMesaOuComanda.value),
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -107,8 +112,21 @@ class ConfiguracaoRestauranteDto {
       'listaDisponivel': listaDisponivel,
       'controlePorMesa': controlePorMesa,
       'controlePorComanda': controlePorComanda,
+      'controlePorMesaOuComanda': controlePorMesaOuComanda,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
   }
+
+  /// Retorna o enum TipoControleVenda
+  TipoControleVenda get tipoControleVendaEnum => TipoControleVenda.fromInt(tipoControleVenda);
+
+  /// Verifica se o controle é por Mesa
+  bool get isControlePorMesa => tipoControleVenda == TipoControleVenda.porMesa.value;
+
+  /// Verifica se o controle é por Comanda
+  bool get isControlePorComanda => tipoControleVenda == TipoControleVenda.porComanda.value;
+
+  /// Verifica se o controle é por Mesa OU Comanda
+  bool get isControlePorMesaOuComanda => tipoControleVenda == TipoControleVenda.porMesaOuComanda.value;
 }

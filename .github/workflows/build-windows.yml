@@ -355,6 +355,91 @@ jobs:
           }
         continue-on-error: false
 
+      - name: Remove stone_payments from plugin registry (CRITICAL - prevents DLL error)
+        run: |
+          Write-Host "=========================================="
+          Write-Host "REMOVING STONE_PAYMENTS FROM PLUGIN REGISTRY"
+          Write-Host "=========================================="
+          Write-Host "   CRÍTICO: Remove o plugin do generated_plugin_registrant.cc"
+          Write-Host "   Isso evita que o Flutter tente carregar DLLs do SDK Stone"
+          Write-Host "   que não existem para Windows, causando erro em runtime"
+          
+          # Busca o arquivo generated_plugin_registrant.cc
+          $pluginFile = $null
+          $searchPaths = @(
+            "build\windows\flutter\generated_plugin_registrant.cc",
+            "build\windows\x64\flutter\generated_plugin_registrant.cc",
+            "windows\flutter\generated_plugin_registrant.cc"
+          )
+          
+          foreach ($path in $searchPaths) {
+            if (Test-Path $path) {
+              $pluginFile = (Resolve-Path $path).Path
+              Write-Host "✅ Arquivo encontrado: $pluginFile"
+              break
+            }
+          }
+          
+          # Busca recursiva se não encontrou
+          if (-not $pluginFile -and (Test-Path "build\windows")) {
+            $foundFiles = Get-ChildItem "build\windows" -Recurse -Filter "generated_plugin_registrant.cc" -ErrorAction SilentlyContinue
+            if ($foundFiles -and $foundFiles.Count -gt 0) {
+              $pluginFile = $foundFiles[0].FullName
+              Write-Host "✅ Arquivo encontrado via busca recursiva: $pluginFile"
+            }
+          }
+          
+          if ($pluginFile) {
+            Write-Host "🔧 Removendo plugin stone_payments do registro..."
+            
+            # Cria backup
+            $backupFile = "$pluginFile.bak"
+            Copy-Item $pluginFile $backupFile -Force
+            Write-Host "   Backup criado: $backupFile"
+            
+            # Lê o conteúdo
+            $content = Get-Content $pluginFile -Raw
+            
+            # Remove includes do stone_payments
+            $content = $content -replace '#include <stone_payments/stone_payments_plugin\.h>', '// #include <stone_payments/stone_payments_plugin.h> // Removido: não suporta Windows'
+            
+            # Remove registro do plugin
+            $content = $content -replace 'stone_payments::StonePaymentsPluginRegisterWithRegistrar\([^)]*\);', '// stone_payments plugin removido (não suporta Windows)'
+            
+            # Remove linhas vazias duplicadas
+            $content = $content -replace "(\r?\n\s*){3,}", "`r`n`r`n"
+            
+            # Salva
+            Set-Content -Path $pluginFile -Value $content -NoNewline
+            
+            Write-Host "✅ Plugin stone_payments removido do registro"
+            Write-Host "   Arquivo modificado: $pluginFile"
+            Write-Host ""
+            Write-Host "🔨 Recompilando executável com plugin removido..."
+            
+            # Recompila apenas o executável usando CMake
+            $cmakeBuildDir = "build\windows"
+            if (Test-Path "$cmakeBuildDir\CMakeCache.txt") {
+              cd $cmakeBuildDir
+              cmake --build . --config $buildType
+              cd ..\..
+              Write-Host "✅ Executável recompilado sem o plugin stone_payments"
+            } else {
+              Write-Host "⚠️ CMakeCache.txt não encontrado"
+              Write-Host "   O executável pode ainda tentar carregar o plugin"
+              Write-Host "   Mas o arquivo foi modificado e será usado no próximo build"
+            }
+          } else {
+            Write-Host "⚠️ Arquivo generated_plugin_registrant.cc não encontrado"
+            Write-Host "   Isso pode significar que:"
+            Write-Host "   1. O build não foi concluído completamente"
+            Write-Host "   2. O plugin stone_payments não foi registrado (já removido do pubspec.yaml)"
+            Write-Host "   3. O arquivo está em um local diferente"
+            Write-Host ""
+            Write-Host "   Se o erro de DLL persistir, verifique manualmente o arquivo gerado"
+          }
+        continue-on-error: true
+
       - name: Verify stone_payments was removed
         run: |
           Write-Host "=========================================="

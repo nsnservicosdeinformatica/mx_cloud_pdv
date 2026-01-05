@@ -252,7 +252,7 @@ jobs:
           $zipName = "mx_cloud_pdv_windows_${flavor}_${version}.zip"
           
           Write-Host "Creating ZIP: $zipName"
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath $zipName -Force
+          Compress-Archive -Path "build\windows\x64\runner\Debug\*" -DestinationPath $zipName -Force
           
           Write-Host "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           
@@ -269,14 +269,14 @@ jobs:
         with:
           name: windows-build-${{ env.FLAVOR }}
           path: |
-            build/windows/x64/runner/Release/**
+            build/windows/x64/runner/Debug/**
             *.zip
           retention-days: 30
           if-no-files-found: error
 
-      - name: Create Release (if tag)
+      - name: Create Debug (if tag)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-debug@v1
         with:
           files: |
             *.zip

@@ -80,7 +80,7 @@ class DevConfig implements EnvConfig {
 /// Configuração de produção (fallback)
 class ProdConfig implements EnvConfig {
   @override
-  String get apiBaseUrl => 'https://api.h4nd.com.br';
+  String get apiBaseUrl => 'https://api-hml.h4nd.com.br';
   
   @override
   String get apiUrl => '$apiBaseUrl/api';

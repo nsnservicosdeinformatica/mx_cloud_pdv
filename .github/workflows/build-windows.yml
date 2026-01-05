@@ -28,8 +28,6 @@ jobs:
     runs-on: windows-latest
     env:
       FLAVOR: ${{ github.event.inputs.flavor || 'mobile' }}
-      BUILD_MODE: ${{ github.ref == 'refs/heads/main' && 'release' || 'debug' }}
-      BUILD_TYPE: ${{ github.ref == 'refs/heads/main' && 'Release' || 'Debug' }}
     
     steps:
       - name: Checkout code
@@ -233,30 +231,14 @@ jobs:
           }
           Write-Host "✓ Package name is correct: $packageName"
 
-      - name: Build Windows
+      - name: Build Windows (Release)
         run: |
           $flavor = "$env:FLAVOR"
           if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
             $flavor = "mobile"
           }
-          $buildMode = "$env:BUILD_MODE"
-          $buildType = "$env:BUILD_TYPE"
-          
-          Write-Host "=========================================="
-          Write-Host "BUILD CONFIGURATION"
-          Write-Host "Branch: ${{ github.ref }}"
-          Write-Host "Flavor: $flavor"
-          Write-Host "Build Mode: $buildMode"
-          Write-Host "Build Type: $buildType"
-          Write-Host "=========================================="
-          
-          if ($buildMode -eq "release") {
-            Write-Host "Building in RELEASE mode (main branch)"
-            flutter build windows --release --dart-define=FLAVOR=$flavor
-          } else {
-            Write-Host "Building in DEBUG mode (develop branch)"
-            flutter build windows --debug --dart-define=FLAVOR=$flavor
-          }
+          Write-Host "Building with flavor: $flavor"
+          flutter build windows --release --dart-define=FLAVOR=$flavor
         continue-on-error: false
 
       - name: Create ZIP artifact
@@ -267,29 +249,10 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
             $flavor = "mobile"
           }
-          $buildMode = "$env:BUILD_MODE"
-          $buildType = "$env:BUILD_TYPE"
+          $zipName = "mx_cloud_pdv_windows_${flavor}_${version}.zip"
           
-          $zipName = "mx_cloud_pdv_windows_${flavor}_${buildMode}_${version}.zip"
-          
-          Write-Host "=========================================="
-          Write-Host "CREATING ZIP ARTIFACT"
-          Write-Host "Build Type: $buildType"
-          Write-Host "Source Path: build\windows\x64\runner\$buildType\*"
-          Write-Host "ZIP Name: $zipName"
-          Write-Host "=========================================="
-          
-          # Verificar se o diretório existe
-          $sourcePath = "build\windows\x64\runner\$buildType"
-          if (-not (Test-Path $sourcePath)) {
-            Write-Host "ERROR: Build directory does not exist: $sourcePath"
-            Write-Host "Available directories:"
-            Get-ChildItem "build\windows\x64\runner\" -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }
-            exit 1
-          }
-          
-          Write-Host "Creating ZIP from: $sourcePath"
-          Compress-Archive -Path "$sourcePath\*" -DestinationPath $zipName -Force
+          Write-Host "Creating ZIP: $zipName"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath $zipName -Force
           
           Write-Host "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           
@@ -304,9 +267,9 @@ jobs:
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build-${{ env.FLAVOR }}-${{ env.BUILD_MODE }}
+          name: windows-build-${{ env.FLAVOR }}
           path: |
-            build/windows/x64/runner/${{ env.BUILD_TYPE }}/**
+            build/windows/x64/runner/Release/**
             *.zip
           retention-days: 30
           if-no-files-found: error

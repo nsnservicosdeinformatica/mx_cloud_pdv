@@ -231,14 +231,14 @@ jobs:
           }
           Write-Host "✓ Package name is correct: $packageName"
 
-      - name: Build Windows (Release)
+      - name: Build Windows (Debug)
         run: |
           $flavor = "$env:FLAVOR"
           if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
             $flavor = "mobile"
           }
           Write-Host "Building with flavor: $flavor"
-          flutter build windows --release --dart-define=FLAVOR=$flavor
+          flutter build windows --debug --dart-define=FLAVOR=$flavor
         continue-on-error: false
 
       - name: Create ZIP artifact

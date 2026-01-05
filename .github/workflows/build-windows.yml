@@ -28,8 +28,6 @@ jobs:
     runs-on: windows-latest
     env:
       FLAVOR: ${{ github.event.inputs.flavor || 'mobile' }}
-      BUILD_MODE: ${{ github.ref == 'refs/heads/main' && 'release' || 'debug' }}
-      BUILD_TYPE: ${{ github.ref == 'refs/heads/main' && 'Release' || 'Debug' }}
     
     steps:
       - name: Checkout code
@@ -210,6 +208,28 @@ jobs:
             Write-Host "Verified package name: $verifyName"
           }
 
+      - name: Remove stone_payments from pubspec.yaml (Windows only)
+        run: |
+          Write-Host "=========================================="
+          Write-Host "REMOVING STONE_PAYMENTS FROM PUBSPEC.YAML"
+          Write-Host "=========================================="
+          Write-Host "   Windows não suporta SDK Stone"
+          Write-Host "   Removendo do pubspec.yaml antes do build"
+          
+          # Cria backup
+          Copy-Item pubspec.yaml pubspec.yaml.bak
+          
+          # Remove stone_payments
+          $content = Get-Content pubspec.yaml -Raw
+          $content = $content -replace '\s*stone_payments:\s*[^\r\n]+[\r\n]*', ''
+          $content = $content -replace '# Payment SDKs \(condicionais por flavor\)[\r\n]*', ''
+          $content = $content -replace '# stone_payments: necessário para compilar código Dart[\r\n]*', ''
+          $content = $content -replace '# As dependências nativas serão excluídas no build\.gradle\.kts para o flavor mobile[\r\n]*', ''
+          $content = $content -replace "(\r?\n\s*){4,}", "`r`n`r`n`r`n"
+          Set-Content -Path pubspec.yaml -Value $content -NoNewline
+          
+          Write-Host "✅ stone_payments removido do pubspec.yaml"
+
       - name: Install dependencies
         run: |
           # Garantir que o nome do pacote está correto antes de pub get
@@ -233,30 +253,14 @@ jobs:
           }
           Write-Host "✓ Package name is correct: $packageName"
 
-      - name: Build Windows
+      - name: Build Windows (Debug)
         run: |
           $flavor = "$env:FLAVOR"
           if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
             $flavor = "mobile"
           }
-          $buildMode = "$env:BUILD_MODE"
-          $buildType = "$env:BUILD_TYPE"
-          
-          Write-Host "=========================================="
-          Write-Host "BUILD CONFIGURATION"
-          Write-Host "Branch: ${{ github.ref }}"
-          Write-Host "Flavor: $flavor"
-          Write-Host "Build Mode: $buildMode"
-          Write-Host "Build Type: $buildType"
-          Write-Host "=========================================="
-          
-          if ($buildMode -eq "release") {
-            Write-Host "Building in RELEASE mode (main branch)"
-            flutter build windows --release --dart-define=FLAVOR=$flavor
-          } else {
-            Write-Host "Building in DEBUG mode (develop branch)"
-            flutter build windows --debug --dart-define=FLAVOR=$flavor
-          }
+          Write-Host "Building with flavor: $flavor (DEBUG mode)"
+          flutter build windows --debug --dart-define=FLAVOR=$flavor
         continue-on-error: false
 
       - name: Create ZIP artifact
@@ -267,29 +271,10 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($flavor) -or $flavor -eq '') {
             $flavor = "mobile"
           }
-          $buildMode = "$env:BUILD_MODE"
-          $buildType = "$env:BUILD_TYPE"
+          $zipName = "mx_cloud_pdv_windows_${flavor}_${version}.zip"
           
-          $zipName = "mx_cloud_pdv_windows_${flavor}_${buildMode}_${version}.zip"
-          
-          Write-Host "=========================================="
-          Write-Host "CREATING ZIP ARTIFACT"
-          Write-Host "Build Type: $buildType"
-          Write-Host "Source Path: build\windows\x64\runner\$buildType\*"
-          Write-Host "ZIP Name: $zipName"
-          Write-Host "=========================================="
-          
-          # Verificar se o diretório existe
-          $sourcePath = "build\windows\x64\runner\$buildType"
-          if (-not (Test-Path $sourcePath)) {
-            Write-Host "ERROR: Build directory does not exist: $sourcePath"
-            Write-Host "Available directories:"
-            Get-ChildItem "build\windows\x64\runner\" -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }
-            exit 1
-          }
-          
-          Write-Host "Creating ZIP from: $sourcePath"
-          Compress-Archive -Path "$sourcePath\*" -DestinationPath $zipName -Force
+          Write-Host "Creating ZIP: $zipName"
+          Compress-Archive -Path "build\windows\x64\runner\Debug\*" -DestinationPath $zipName -Force
           
           Write-Host "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           
@@ -304,9 +289,9 @@ jobs:
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build-${{ env.FLAVOR }}-${{ env.BUILD_MODE }}
+          name: windows-build-${{ env.FLAVOR }}
           path: |
-            build/windows/x64/runner/${{ env.BUILD_TYPE }}/**
+            build/windows/x64/runner/Debug/**
             *.zip
           retention-days: 30
           if-no-files-found: error
